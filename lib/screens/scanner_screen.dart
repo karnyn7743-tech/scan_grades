@@ -114,12 +114,10 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
 
   void _initOCR() async {
     try {
-      // التعديل 1: الاعتماد على الطريقة الحديثة لتحديد اللغة العربية في مكتبة ML Kit المحدثة
-      _textRecognizer = TextRecognizer(script: TextRecognitionScript.arabic);
+      // محاولة استخدام التعرف الافتراضي الذي يدعم الأرقام والنصوص بشكل أساسي في الحزمة المستقرة
+      _textRecognizer = TextRecognizer(); 
     } catch (e) {
       print('Error initializing OCR: $e');
-      // محاولة استخدام النموذج الافتراضي
-      _textRecognizer = TextRecognizer();
     }
   }
 
