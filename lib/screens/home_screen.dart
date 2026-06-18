@@ -1,3 +1,4 @@
+import 'dart:io'; // أضف هذا السطر لحل مشكلة 'File'
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart';
