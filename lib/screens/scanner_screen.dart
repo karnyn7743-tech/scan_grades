@@ -3,10 +3,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
+// التعديل 1 و 2: إخفاء Barcode لمنع التضارب مع مكتبة mobile_scanner
+import 'package:google_ml_kit/google_ml_kit.dart' hide Barcode;
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
-import 'package:excel/excel.dart';
+// التعديل 5: استيراد مكتبة excel باختصار مخصص (as ex) لمنع تضارب كلاس Border
+import 'package:excel/excel.dart' as ex;
 import '../utils/grade_parser.dart';
 
 // تعريف منطقة المسح
@@ -75,9 +77,9 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   // آخر رقم مادة تم قراءته
   String? _lastSubjectId;
 
-  // ملف Excel المحمل
-  Excel? _excel;
-  Sheet? _sheet;
+  // ملف Excel المحمل (تم إضافة بادئة الاختصار ex)
+  ex.Excel? _excel;
+  ex.Sheet? _sheet;
 
   // متغيرات لمنع التكرار السريع
   DateTime? _lastProcessTime;
@@ -112,22 +114,19 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
 
   void _initOCR() async {
     try {
-      // استخدام النموذج الافتراضي للغة العربية
-      final options = TextRecognizerOptions(
-        language: TextRecognitionLanguage.arabic,
-      );
-      _textRecognizer = GoogleMlKit.vision.textRecognizer(options);
+      // التعديل 1: الاعتماد على الطريقة الحديثة لتحديد اللغة العربية في مكتبة ML Kit المحدثة
+      _textRecognizer = TextRecognizer(script: TextRecognitionScript.arabic);
     } catch (e) {
       print('Error initializing OCR: $e');
       // محاولة استخدام النموذج الافتراضي
-      _textRecognizer = GoogleMlKit.vision.textRecognizer();
+      _textRecognizer = TextRecognizer();
     }
   }
 
   Future<void> _loadExcel() async {
     try {
       final bytes = await File(widget.excelPath).readAsBytes();
-      _excel = Excel.decodeBytes(bytes);
+      _excel = ex.Excel.decodeBytes(bytes); // استخدام البادئة ex
       if (_excel != null && _excel!.tables.isNotEmpty) {
         _sheet = _excel!.tables[_excel!.tables.keys.first];
       }
@@ -365,8 +364,10 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
 
   Future<String?> _scanQRFromFile(String filePath) async {
     try {
-      final Barcode? result = await MobileScanner.scanFile(File(filePath));
-      return result?.rawValue;
+      // التعديل 3: استبدال دالة scanFile المحذوفة في مكتبة mobile_scanner بالدالة البديلة والحديثة analyzeImage
+      final MobileScannerController controller = MobileScannerController();
+      final BarcodeCapture? capture = await controller.analyzeImage(filePath);
+      return capture?.barcodes.firstOrNull?.rawValue;
     } catch (e) {
       print('QR scan error: $e');
       return null;
@@ -435,11 +436,11 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       String studentName = '';
 
       for (int row = 1; row < _sheet!.maxRows; row++) {
-        final cell = _sheet!.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row));
+        final cell = _sheet!.cell(ex.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row));
         if (cell.value != null && cell.value.toString() == qrCode) {
           studentRow = row;
           // قراءة اسم الطالب من العمود B
-          final nameCell = _sheet!.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row));
+          final nameCell = _sheet!.cell(ex.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row));
           studentName = nameCell.value?.toString() ?? 'غير معروف';
           break;
         }
@@ -450,7 +451,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
           // العثور على عمود المادة المختارة
           int subjectColumn = -1;
           for (int col = 4; col < _sheet!.maxColumns; col++) {
-            final cell = _sheet!.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0));
+            final cell = _sheet!.cell(ex.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0));
             if (cell.value != null && cell.value.toString() == widget.selectedSubject) {
               subjectColumn = col;
               break;
@@ -458,11 +459,11 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
           }
 
           if (subjectColumn != -1) {
-            // تحديث الدرجة
-            _sheet!.cell(CellIndex.indexByColumnRow(
+            // التعديل 4: استخدام الكلاس الحديث TextCellValue لتمرير النصوص إلى الخلية في مكتبة Excel الحديثة
+            _sheet!.cell(ex.CellIndex.indexByColumnRow(
                 columnIndex: subjectColumn,
                 rowIndex: studentRow
-            )).value = _lastRecognizedGrade;
+            )).value = ex.TextCellValue(_lastRecognizedGrade!);
 
             await _saveExcel();
 
@@ -743,6 +744,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
               width: zone.rect.width,
               height: zone.rect.height,
               decoration: BoxDecoration(
+                // تم إبقاء استدعاء Border هنا تابعاً للفلاتر بشكل سليم وتلقائي لأن حزمة excel مسبوقة بـ ex.
                 border: Border.all(
                   color: zone.type == 'subject_id' ? Colors.orange :
                   zone.type == 'qr' ? Colors.blue :
