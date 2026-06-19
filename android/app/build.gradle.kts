@@ -5,16 +5,8 @@ plugins {
 }
 
 android {
-    namespace = "com.example.testapp"
+    namespace = "com.example.student_grades_scanner"
     compileSdk = 34
-
-    defaultConfig {
-        applicationId = "com.example.testapp"
-        minSdk = 21
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
-    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -24,6 +16,25 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    defaultConfig {
+        applicationId = "com.example.student_grades_scanner"
+        minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
 }
 
 flutter {
@@ -31,5 +42,7 @@ flutter {
 }
 
 dependencies {
-    // لا توجد مكتبات إضافية
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+    implementation("com.google.mlkit:text-recognition-arabic:16.0.0")
 }
