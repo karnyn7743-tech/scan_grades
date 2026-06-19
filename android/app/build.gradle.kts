@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.control_students_grades"
     compileSdk = 36
-    ndkVersion = "21" // تم تعديل هذا السطر بإضافة علامات التنصيص لحل المشكلة
+    ndkVersion = flutter.ndkVersion // تم تعديل هذا السطر بإضافة علامات التنصيص لحل المشكلة
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
