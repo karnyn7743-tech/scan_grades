@@ -1,17 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.student_grades_scanner">
 
+    <!-- أذونات التطبيق الأساسية -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
+    <!-- أذونات الكاميرا والتخزين (ضرورية للتطبيق) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     
+    <!-- أذونات Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- ميزات الكاميرا المطلوبة -->
     <uses-feature android:name="android.hardware.camera" />
     <uses-feature android:name="android.hardware.camera.autofocus" />
 
@@ -26,6 +31,7 @@
         android:hardwareAccelerated="true"
         android:supportsRtl="true">
 
+        <!-- النشاط الرئيسي (Android v2 Embedding) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -35,11 +41,13 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             
+            <!-- Intent Filter للتشغيل من launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             
+            <!-- دعم فتح ملفات Excel من التطبيقات الأخرى -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -48,6 +56,7 @@
             </intent-filter>
         </activity>
 
+        <!-- FileProvider لمشاركة الملفات مع التطبيقات الأخرى (مثل قراءة Excel) -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -58,10 +67,12 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- تأكيد استخدام Android v2 Embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- دعم الشاشات الكبيرة -->
         <meta-data
             android:name="io.flutter.embedding.android.NormalTheme"
             android:resource="@style/NormalTheme" />
@@ -72,6 +83,7 @@
 
     </application>
 
+    <!-- دعم التطبيقات التي تفتح ملفات (مطلوب لـ Android 11+) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
