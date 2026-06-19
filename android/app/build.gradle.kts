@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.control_students_grades"
-    compileSdk = 36
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion // تم تعديل هذا السطر بإضافة علامات التنصيص لحل المشكلة
 
     compileOptions {
@@ -24,7 +24,7 @@ android {
         applicationId = "com.example.control_students_grades"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 36
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
