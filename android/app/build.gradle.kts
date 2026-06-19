@@ -5,8 +5,16 @@ plugins {
 }
 
 android {
-    namespace = "com.example.school_grading_app"
-    compileSdk = 35
+    namespace = "com.example.testapp"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "com.example.testapp"
+        minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -16,24 +24,12 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-
-    defaultConfig {
-        applicationId = "com.example.school_grading_app"
-        minSdk = 21
-        targetSdk = 35
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-    }
-
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("debug")
-            isMinifyEnabled = false
-            isShrinkResources = false
-        }
-    }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // لا توجد مكتبات إضافية
 }
