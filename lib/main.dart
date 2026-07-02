@@ -12,47 +12,34 @@ void main() {
   runApp(const StugraScanApp());
 }
 
-class StugraScanApp extends StatefulWidget {
+class StugraScanApp extends StatelessWidget {
   const StugraScanApp({super.key});
-
-  @override
-  State<StugraScanApp> createState() => _StugraScanAppState();
-}
-
-class _StugraScanAppState extends State<StugraScanApp> {
-  bool isDarkMode = true;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'StugraScan',
       debugShowCheckedModeBanner: false,
-      theme: isDarkMode ? ThemeData.dark() : ThemeData.light(),
-      home: MainScreen(
-        isDarkMode: isDarkMode,
-        onThemeChanged: (val) => setState(() => isDarkMode = val),
-      ),
+      theme: ThemeData.dark(),
+      home: const MainScreen(),
     );
   }
 }
 
 class MainScreen extends StatefulWidget {
-  final bool isDarkMode;
-  final ValueChanged<bool> onThemeChanged;
-
-  const MainScreen({super.key, required this.isDarkMode, required this.onThemeChanged});
+  const MainScreen({super.key});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
-  late ExcelService _excelService;
-  late OcrBarcodeService _ocrBarcodeService;
+  final ExcelService _excelService = ExcelService();
+  final OcrBarcodeService _ocrBarcodeService = OcrBarcodeService();
   
   CameraController? _cameraController;
   String _fileName = "لم يتم اختيار ملف";
-  String _absoluteFilePath = ""; // لتخزين المسار الحقيقي للملف الأصلي والتعديل عليه مباشرة
+  String _filePath = ""; 
   List<String> _subjects = [];
   String? _selectedSubject;
   int _selectedSubjectIndex = -1;
@@ -69,71 +56,62 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _initServicesAndCamera();
+    _startLifecycle();
   }
 
-  // دالة تهيئة آمنة لا تستدعي صلاحيات التخزين القديمة المسببة للانهيار
-  void _initServicesAndCamera() {
-    _excelService = ExcelService();
-    _ocrBarcodeService = OcrBarcodeService();
-    _initializeCamera();
+  Future<void> _startLifecycle() async {
+    // طلب الصلاحيات أولاً بشكل طبيعي ومباشر
+    await [
+      Permission.camera,
+      Permission.storage,
+      Permission.manageExternalStorage,
+    ].request();
+
+    _initCamera();
   }
 
-  Future<void> _initializeCamera() async {
-    // طلب صلاحية الكاميرا فقط عند التشغيل لأنها آمنة ولا تسبب انهيار التطبيق
-    var cameraStatus = await Permission.camera.request();
-
-    if (cameraStatus.isGranted) {
-      try {
-        final availableDevices = await availableCameras();
-        if (availableDevices.isNotEmpty) {
-          _cameraController = CameraController(
-            availableDevices.first,
-            ResolutionPreset.medium,
-            enableAudio: false,
-          );
-
-          await _cameraController!.initialize();
-          if (mounted) {
-            setState(() {
-              _isCameraInitialized = true;
-            });
-          }
+  Future<void> _initCamera() async {
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isNotEmpty) {
+        _cameraController = CameraController(
+          cameras.first,
+          ResolutionPreset.medium,
+          enableAudio: false,
+        );
+        await _cameraController!.initialize();
+        if (mounted) {
+          setState(() => _isCameraInitialized = true);
         }
-      } catch (e) {
-        debugPrint("خطأ في عتاد الكاميرا: $e");
       }
+    } catch (e) {
+      debugPrint("خطأ في الكاميرا: $e");
     }
   }
 
-  // دالة اختيار وتحديد الملف الأصلي مباشرة من الذاكرة الداخلية (مجلد التنزيلات / درجات الطلاب)
   Future<void> _pickExcelFile() async {
-    try {
-      // استخدام مستعرض الملفات الآمن المتوافق مع أندرويد الحديث بدون الحاجة لصلاحيات خطيرة تسبب الانهيار
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['xlsx'],
-      );
+    // التأكد من وجود المجلد المطلوب في مسار التنزيلات بالذاكرة المشتركة للهاتف
+    String targetPath = "/storage/emulated/0/Download/درجات الطلاب";
+    Directory targetDir = Directory(targetPath);
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
 
-      if (result != null && result.files.single.path != null) {
-        String filePath = result.files.single.path!;
-        
-        setState(() {
-          _absoluteFilePath = filePath; // حفظ المسار الأصلي لتعديله مباشرة في مكانه
-          _fileName = result.files.single.name;
-          _subjects = _excelService.getSubjectHeaders(filePath);
-          _selectedSubject = null;
-          _selectedSubjectIndex = -1;
-          _totalStudents = 0;
-          _gradedStudents = 0;
-        });
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+    );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("تم ربط الملف الأصلي بنجاح: $_fileName")),
-        );
-      }
-    } catch (e) {
-      _showDialog("خطأ في فتح الملف", "تأكد من اختيار الملف من داخل الذاكرة الداخلية (مجلد درجات الطلاب): $e");
+    if (result != null && result.files.single.path != null) {
+      _filePath = result.files.single.path!;
+      setState(() {
+        _fileName = result.files.single.name;
+        _subjects = _excelService.getSubjectHeaders(_filePath);
+        _selectedSubject = null;
+        _selectedSubjectIndex = -1;
+        _totalStudents = 0;
+        _gradedStudents = 0;
+      });
     }
   }
 
@@ -149,7 +127,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _captureAndScan() async {
     if (_selectedSubjectIndex == -1 || _cameraController == null || !_cameraController!.value.isInitialized) {
-      _showDialog("تنبيه", "الرجاء اختيار ملف إكسل والمادة أولاً وتفعيل الكاميرا.");
+      _showDialog("تنبيه", "الرجاء اختيار ملف إكسل والمادة وتفعيل الكاميرا.");
       return;
     }
 
@@ -161,7 +139,7 @@ class _MainScreenState extends State<MainScreen> {
       String scannedQrCode = results['qr'] ?? "";
 
       if (scannedQrCode.isEmpty) {
-        _showDialog("تنبيه", "لم يتم العثور على رمز استجابة سريع (QR) في هذه المنطقة!");
+        _showDialog("تنبيه", "لم يتم العثور على رمز QR!");
         return;
       }
 
@@ -172,14 +150,13 @@ class _MainScreenState extends State<MainScreen> {
       }
 
       if (status['hasGrade']) {
-        _showDialog("تنبيه", "تم بالفعل إدخل درجة هذا الطالب مسبقاً.");
+        _showDialog("تنبيه", "تم إدخال درجة هذا الطالب مسبقاً.");
         return;
       }
 
       int expectedCode = _selectedSubjectIndex - 3; 
-      
       if (!rawText.contains(expectedCode.toString())) {
-        _showDialog("تنبيه", "المادة التي ستدخل درجاتها ليست التي تم اختيارها!");
+        _showDialog("تنبيه", "المادة الممسوحة مغايرة للمادة المختارة!");
         return;
       }
 
@@ -192,19 +169,16 @@ class _MainScreenState extends State<MainScreen> {
       });
 
     } catch (e) {
-      _showDialog("خطأ", "حدث خطأ أثناء التقاط الصورة: $e");
+      _showDialog("خطأ", "فشل المسح: $e");
     }
   }
 
-  // دالة الحفظ والكتابة المباشرة على الملف الأصلي المستدعى
   void _saveGradeToExcel() {
     if (_activeRowIndex != null && _selectedSubjectIndex != -1 && _gradeController.text.isNotEmpty) {
       try {
-        // الكتابة مباشرة داخل مسار الملف الأصلي المفتوح في الذاكرة الداخلية
         _excelService.saveGrade(_activeRowIndex!, _selectedSubjectIndex, _gradeController.text);
-        
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("تم رصد الدرجة وحفظها في الملف الأصلي بنجاح")),
+          const SnackBar(content: Text("تم التعديل والحفظ على الملف الأصلي بنجاح")),
         );
         _updateStats();
         
@@ -214,7 +188,7 @@ class _MainScreenState extends State<MainScreen> {
           _activeRowIndex = null;
         });
       } catch (e) {
-        _showDialog("خطأ في الحفظ", "فشل الكتابة على الملف الأصلي، تأكد من إغلاقه إن كان مفتوحاً في تطبيق آخر: $e");
+        _showDialog("خطأ في الحفظ", "تأكد من إغلاق الملف إن كان مفتوحاً على الكمبيوتر: $e");
       }
     }
   }
@@ -242,31 +216,23 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void dispose() {
     _cameraController?.dispose();
-    _ocrBarcodeService.dispose();
     _gradeController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    Color primaryPurple = const Color(0xFF7B1FA2);
-    Color fieldColor = const Color(0xFF212121);
-
     return Scaffold(
-      backgroundColor: widget.isDarkMode ? const Color(0xFF4A148C) : Colors.white,
+      backgroundColor: const Color(0xFF4A148C),
       appBar: AppBar(
         title: const Text("برنامج إسقاط الدرجات بالأكواد"),
         centerTitle: true,
-        backgroundColor: primaryPurple,
+        backgroundColor: const Color(0xFF7B1FA2),
         actions: [
           IconButton(
             icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off),
             onPressed: _toggleFlash,
           ),
-          Switch(
-            value: widget.isDarkMode,
-            onChanged: widget.onThemeChanged,
-          )
         ],
       ),
       body: SingleChildScrollView(
@@ -276,13 +242,13 @@ class _MainScreenState extends State<MainScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size.fromHeight(50)),
               onPressed: _pickExcelFile,
-              child: const Text("اختر ملف الأكسيل من مجلد الدرجات", style: TextStyle(fontSize: 18, color: Colors.white)),
+              child: const Text("اختر ملف الأكسيل الأصلي", style: TextStyle(fontSize: 18, color: Colors.white)),
             ),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8)),
+              decoration: BoxDecoration(color: const Color(0xFF212121), borderRadius: BorderRadius.circular(8)),
               child: Text(_fileName, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
             ),
             const SizedBox(height: 12),
@@ -291,10 +257,10 @@ class _MainScreenState extends State<MainScreen> {
             const SizedBox(height: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8)),
+              decoration: BoxDecoration(color: const Color(0xFF212121), borderRadius: BorderRadius.circular(8)),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
-                  dropdownColor: fieldColor,
+                  dropdownColor: const Color(0xFF212121),
                   isExpanded: true,
                   hint: Text(_subjects.isEmpty ? "اختر ملف Excel أولاً" : "انقر لتحديد المادة", style: const TextStyle(color: Colors.grey)),
                   value: _selectedSubject,
@@ -316,7 +282,7 @@ class _MainScreenState extends State<MainScreen> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8)),
+              decoration: BoxDecoration(color: const Color(0xFF212121), borderRadius: BorderRadius.circular(8)),
               child: Text(_secretIdResult, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
             ),
             const SizedBox(height: 12),
@@ -334,7 +300,7 @@ class _MainScreenState extends State<MainScreen> {
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
                         style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(fillColor: fieldColor, filled: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                        decoration: InputDecoration(fillColor: const Color(0xFF212121), filled: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
                       ),
                     ],
                   ),
@@ -349,7 +315,7 @@ class _MainScreenState extends State<MainScreen> {
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade700)),
+                        decoration: BoxDecoration(color: const Color(0xFF212121), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade700)),
                         child: Text("$_gradedStudents / $_totalStudents", style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                       ),
                     ],
@@ -368,7 +334,7 @@ class _MainScreenState extends State<MainScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size.fromHeight(50)),
               onPressed: _activeRowIndex == null ? null : _saveGradeToExcel,
-              child: const Text("حفظ الدرجة في الملف الأصلي", style: TextStyle(fontSize: 18, color: Colors.white)),
+              child: const Text("حفظ وتعديل الملف الأصلي", style: TextStyle(fontSize: 18, color: Colors.white)),
             ),
             const SizedBox(height: 20),
 
@@ -383,7 +349,7 @@ class _MainScreenState extends State<MainScreen> {
                     )
                   : const Center(
                       child: Text(
-                        "جاري تهيئة الكاميرا المباشرة بسلامة...",
+                        "جاري تشغيل الكاميرا...",
                         style: TextStyle(color: Colors.white70),
                         textAlign: TextAlign.center,
                       ),
