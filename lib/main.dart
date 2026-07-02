@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' as px; // هنا قمنا بإعطاء اختصار للمكتبة لحل مشكلة تداخل الاسماء
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +30,6 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  // متغيرات حقيقية لإدارة الملف والمواد المختارة
   String _fileName = "لم يتم اختيار ملف الكنترول بعد";
   String? _selectedFilePath;
   List<String> _subjects = []; 
@@ -43,7 +42,6 @@ class _MainScreenState extends State<MainScreen> {
   int _totalStudents = 0;
   int _gradedStudents = 0;
 
-  // دالة اختيار ملف الأكسيل وقراءة المواد من E إلى S في الصف الأول
   Future<void> _pickAndParseExcel() async {
     setState(() {
       _isLoading = true;
@@ -53,7 +51,6 @@ class _MainScreenState extends State<MainScreen> {
     });
 
     try {
-      // 1. فتح نافذة اختيار الملف وتصفيته ليقبل صيغ الإكسيل فقط
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx', 'xls'],
@@ -63,19 +60,17 @@ class _MainScreenState extends State<MainScreen> {
         _selectedFilePath = result.files.single.path;
         String nameOfFile = result.files.single.name;
         
-        // 2. قراءة بايتات الملف وفك التشفير عبر مكتبة excel
         var bytes = File(_selectedFilePath!).readAsBytesSync();
-        var excel = Excel.decodeBytes(bytes);
+        var excel = px.Excel.decodeBytes(bytes); // استخدام الاختصار px
         
-        // 3. جلب ورقة العمل الأولى (النشطة)
         String firstSheet = excel.tables.keys.first;
         var sheet = excel.tables[firstSheet];
 
-        if (sheet != null && sheet.maxCols > 0) {
+        // تم استبدال maxCols بـ maxColumns المتوافقة مع الإصدار الجديد
+        if (sheet != null && sheet.maxColumns > 0) {
           var firstRow = sheet.rows.first; 
           List<String> tempSubjects = [];
 
-          // النطاق المحدد: من العمود E (اندكس 4) إلى S (اندكس 18)
           int startColumn = 4;  // E
           int endColumn = 18;  // S
 
@@ -94,7 +89,6 @@ class _MainScreenState extends State<MainScreen> {
           setState(() {
             _fileName = nameOfFile;
             _subjects = tempSubjects;
-            // يمكنك هنا أيضاً تحديث عدد الطلاب الإجمالي من قراءة الأسطر لاحقاً
             _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0; 
           });
 
@@ -103,7 +97,6 @@ class _MainScreenState extends State<MainScreen> {
           }
         }
       } else {
-        // إذا ألغى المستخدم الاختيار
         setState(() {
           _fileName = _selectedFilePath != null ? _selectedFilePath!.split('/').last : "لم يتم اختيار ملف الكنترول بعد";
         });
@@ -152,7 +145,6 @@ class _MainScreenState extends State<MainScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // زر اختيار ملف الأكسيل مرتبط بالدالة البرمجية الحقيقية
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
@@ -182,7 +174,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 12),
 
-            // قائمة اختيار المادة الديناميكية
             const Align(
               alignment: Alignment.centerRight,
               child: Text(
@@ -209,7 +200,6 @@ class _MainScreenState extends State<MainScreen> {
                     style: const TextStyle(color: Colors.grey),
                   ),
                   value: _selectedSubject,
-                  // تتعطل القائمة تلقائياً إذا كانت قائمة المواد فارغة
                   items: _subjects.isEmpty ? null : _subjects
                       .map(
                         (sub) => DropdownMenuItem(
@@ -231,7 +221,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 12),
 
-            // الرقم السري
             const Align(
               alignment: Alignment.centerRight,
               child: Text(
@@ -258,7 +247,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 12),
 
-            // الصف الخاص بالدرجة والعداد
             Row(
               children: [
                 Expanded(
@@ -308,7 +296,7 @@ class _MainScreenState extends State<MainScreen> {
                         decoration: BoxDecoration(
                           color: fieldColor,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade700),
+                          border: Border.all(color: Colors.grey.shade700), // تم التوجيه المباشر لـ فلاتر تلقائياً
                         ),
                         child: Text(
                           "$_gradedStudents / $_totalStudents",
@@ -326,7 +314,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 20),
 
-            // أزرار العمليات
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
@@ -352,14 +339,13 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 20),
 
-            // حاوية الكاميرا الصامتة
             Container(
               width: double.infinity,
               height: 220,
               decoration: BoxDecoration(
                 color: Colors.black,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey, width: 2),
+                border: Border.all(color: Colors.grey, width: 2), // تم التوجيه المباشر لـ فلاتر تلقائياً
               ),
               child: const Center(
                 child: Text(
