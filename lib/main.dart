@@ -56,48 +56,97 @@ class _MainScreenState extends State<MainScreen> {
   // تعريف قارئ النصوص (OCR)
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
-  Future<void> _pickAndParseExcel() async {
-    setState(() {
-      _isLoading = true;
-      _subjects.clear();
-      _selectedSubject = null;
-      _fileName = "جاري قراءة الملف...";
-    });
+  Future<void> _processCapturedImage(BarcodeCapture capture) async {
+    final List<Barcode> barcodes = capture.barcodes;
+    
+    // 1. التقاط الرقم السري من الـ QR Code أولاً
+    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+      final String qrValue = barcodes.first.rawValue!;
+      
+      // إيقاف مؤقت لمنع التكرار أثناء المعالجة
+      _cameraController.stop();
 
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls'],
-      );
+      if (capture.image != null) {
+        final InputImage inputImage = InputImage.fromBytes(
+          bytes: capture.image!,
+          metadata: InputImageMetadata(
+            size: Size(capture.size.width, capture.size.height), // التعديل هنا لـ size.width و size.height
+            rotation: InputImageRotation.rotation0deg, // التعديل هنا إلى rotation0deg
+            format: InputImageFormat.nv21, 
+            bytesPerRow: capture.size.width.toInt(), // التعديل هنا
+          ),
+        );
 
-      if (result != null && result.files.single.path != null) {
-        _selectedFilePath = result.files.single.path;
-        String nameOfFile = result.files.single.name;
-        
-        var bytes = File(_selectedFilePath!).readAsBytesSync();
-        var excel = px.Excel.decodeBytes(bytes);
-        
-        String firstSheet = excel.tables.keys.first;
-        var sheet = excel.tables[firstSheet];
+        try {
+          final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
+          
+          List<Map<String, dynamic>> textElements = [];
 
-        if (sheet != null && sheet.maxColumns > 0) {
-          var firstRow = sheet.rows.first; 
-          List<String> tempSubjects = [];
-
-          int startColumn = 4;  // E
-          int endColumn = 18;  // S
-
-          for (int i = startColumn; i <= endColumn; i++) {
-            if (i < firstRow.length) {
-              var cellValue = firstRow[i]?.value;
-              if (cellValue != null) {
-                String subjectName = cellValue.toString().trim();
-                if (subjectName.isNotEmpty) {
-                  tempSubjects.add(subjectName);
-                }
+          for (TextBlock block in recognizedText.blocks) {
+            for (TextLine line in block.lines) {
+              String cleanText = _extractDigits(line.text.trim());
+              if (cleanText.isNotEmpty) {
+                textElements.add({
+                  'text': cleanText,
+                  'x': line.boundingBox.left, 
+                });
               }
             }
           }
+
+          String detectedSubjectCode = "";
+          String detectedGrade = "";
+
+          if (textElements.isNotEmpty) {
+            textElements.sort((a, b) => a['x'].compareTo(b['x']));
+
+            if (textElements.length >= 2) {
+              detectedSubjectCode = textElements.first['text']; 
+              detectedGrade = textElements.last['text'];        
+            } else if (textElements.length == 1) {
+              detectedGrade = textElements.first['text'];
+            }
+          }
+
+          int currentSubjectIndex = _subjects.indexOf(_selectedSubject!) + 1; 
+
+          if (detectedSubjectCode.isNotEmpty && detectedSubjectCode != currentSubjectIndex.toString()) {
+            _showSnackBar("⚠️ تنبيه: كود المادة المقروء ($detectedSubjectCode) لا يطابق المادة المختارة ($_selectedSubject)!");
+            _cameraController.start(); 
+            setState(() {
+              _isScanningActive = true;
+            });
+            return;
+          }
+
+          setState(() {
+            _secretIdResult = qrValue; 
+            if (detectedGrade.isNotEmpty) {
+              _gradeController.text = detectedGrade; 
+            }
+            _gradedStudents += 1; 
+            _isScanningActive = false;
+          });
+
+          _showSnackBar("✅ تم رصد الطالب بنجاح بمادة $_selectedSubject");
+
+        } catch (e) {
+          setState(() {
+            _secretIdResult = qrValue;
+            _gradedStudents += 1;
+            _isScanningActive = false;
+          });
+          _showSnackBar("تم التقاط الرقم السري: $qrValue (أدخل الدرجة يدوياً)");
+        }
+      } else {
+        setState(() {
+          _secretIdResult = qrValue;
+          _gradedStudents += 1;
+          _isScanningActive = false;
+        });
+      }
+    }
+  }
 
           setState(() {
             _fileName = nameOfFile;
@@ -255,10 +304,11 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   @override
+  @override
   void dispose() {
     _gradeController.dispose();
     _cameraController.dispose();
-    _textRecognizer.dispose(); // إغلاق مستخرج النصوص لتحرير الذاكرة
+    _textRecognizer.close(); // التعديل هنا: استخدام close() بدلاً من dispose() بناءً على تحديث المكتبة
     super.dispose();
   }
 
