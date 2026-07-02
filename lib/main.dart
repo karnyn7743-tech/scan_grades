@@ -52,8 +52,11 @@ class _MainScreenState extends State<MainScreen> {
   bool _isTorchOn = false;
 
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+  
+  // كائن الإكسيل الحالي لحفظ التعديلات في الذاكرة قبل الكتابة على القرص
+  px.Excel? _excelInstance;
 
-  // دالة اختيار ومعالجة ملف الإكسيل (تم إعادتها لهيكلها الصحيح)
+  // 1. دالة اختيار ومعالجة ملف الإكسيل
   Future<void> _pickAndParseExcel() async {
     setState(() {
       _isLoading = true;
@@ -70,15 +73,15 @@ class _MainScreenState extends State<MainScreen> {
         String nameOfFile = result.files.single.name;
 
         var bytes = File(_selectedFilePath!).readAsBytesSync();
-        var excel = px.Excel.decodeBytes(bytes);
+        _excelInstance = px.Excel.decodeBytes(bytes);
 
-        if (excel.tables.isNotEmpty) {
-          var sheet = excel.tables.values.first;
+        if (_excelInstance!.tables.isNotEmpty) {
+          var sheet = _excelInstance!.tables.values.first;
           List<String> tempSubjects = [];
           
-          // افتراض قراءة الصف الأول لجلب المواد من الأعمدة E إلى S (أعمدة 4 إلى 18)
           if (sheet.maxRows > 0) {
             var row = sheet.rows.first;
+            // الأعمدة من E إلى S تعني برمجياً الإندكس من 4 إلى 18
             for (int i = 4; i <= 18; i++) {
               if (i < row.length && row[i] != null) {
                 tempSubjects.add(row[i]!.value.toString());
@@ -97,10 +100,6 @@ class _MainScreenState extends State<MainScreen> {
             _showSnackBar("تنبيه: لم يتم العثور على مواد في الأعمدة من E إلى S في الصف الأول.");
           }
         }
-      } else {
-        setState(() {
-          _fileName = _selectedFilePath != null ? _selectedFilePath!.split('/').last : "لم يتم اختيار ملف الكنترول بعد";
-        });
       }
     } catch (e) {
       setState(() {
@@ -114,13 +113,14 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // دالة معالجة الصورة الحية والتعرف الذكي (نسخة واحدة نظيفة ومصححة)
+  // 2. دالة معالجة الصورة الذكية عبر الكاميرا
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
     final List<Barcode> barcodes = capture.barcodes;
     
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       final String qrValue = barcodes.first.rawValue!;
       
+      // إيقاف مؤقت للسماح للمستخدم بالمراجعة والتعديل يدوياً
       _cameraController.stop();
 
       if (capture.image != null) {
@@ -167,11 +167,8 @@ class _MainScreenState extends State<MainScreen> {
           int currentSubjectIndex = _subjects.indexOf(_selectedSubject!) + 1; 
 
           if (detectedSubjectCode.isNotEmpty && detectedSubjectCode != currentSubjectIndex.toString()) {
-            _showSnackBar("⚠️ تنبيه: كود المادة المقروء ($detectedSubjectCode) لا يطابق المادة المختارة ($_selectedSubject)!");
+            _showSnackBar("⚠️ كود المادة ($detectedSubjectCode) لا يطابق المادة المختارة!");
             _cameraController.start(); 
-            setState(() {
-              _isScanningActive = true;
-            });
             return;
           }
 
@@ -180,27 +177,96 @@ class _MainScreenState extends State<MainScreen> {
             if (detectedGrade.isNotEmpty) {
               _gradeController.text = detectedGrade; 
             }
-            _gradedStudents += 1; 
-            _isScanningActive = false;
           });
-
-          _showSnackBar("✅ تم رصد الطالب بنجاح بمادة $_selectedSubject");
 
         } catch (e) {
           setState(() {
             _secretIdResult = qrValue;
-            _gradedStudents += 1;
-            _isScanningActive = false;
           });
-          _showSnackBar("تم التقاط الرقم السري: $qrValue (أدخل الدرجة يدوياً)");
+          _showSnackBar("تم التقاط الرقم السري. يرجى كتابة الدرجة يدوياً.");
         }
       } else {
         setState(() {
           _secretIdResult = qrValue;
-          _gradedStudents += 1;
-          _isScanningActive = false;
         });
       }
+    }
+  }
+
+  // 3. دالة البحث وحفظ الدرجة في ملف الأكسيل الأصلي وإعادة تشغيل الكاميرا
+  Future<void> _saveGradeToExcel() async {
+    if (_excelInstance == null || _selectedFilePath == null) {
+      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل!");
+      return;
+    }
+    if (_secretIdResult == "سيظهر هنا الرقم السري" || _secretIdResult.isEmpty) {
+      _showSnackBar("⚠️ خطأ: لا يوجد رقم سري لحفظه!");
+      return;
+    }
+    if (_gradeController.text.isEmpty) {
+      _showSnackBar("⚠️ يرجى إدخال أو مراجعة الدرجة أولاً!");
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      var sheet = _excelInstance!.tables.values.first;
+      bool targetFound = false;
+
+      // تحديد رقم العمود الخاص بالمادة المختارة
+      // الترتيب يبدأ من العمود E (اندكس 4)
+      int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
+
+      // البحث عن صف الطالب بواسطة الرقم السري (بافتراض أن الرقم السري في العمود الأول A أو الثاني B)
+      // سنبحث في أول عمودين للتأكد من مطابقة الرقم السري
+      for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
+        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
+        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex)).value;
+
+        if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
+          // إسقاط الدرجة في خانة المادة المحددة لهذا الصف
+          var targetCell = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex));
+          targetCell.value = px.TextCellValue(_gradeController.text);
+          targetFound = true;
+          break;
+        }
+      }
+
+      if (!targetFound) {
+        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) داخل ملف الإكسيل!");
+        setState(() { _isLoading = false; });
+        return;
+      }
+
+      // حفظ التعديلات وكتابتها في نفس مسار الملف الأصلي تماماً
+      final bytes = _excelInstance!.encode();
+      if (bytes != null) {
+        final file = File(_selectedFilePath!);
+        await file.writeAsBytes(bytes, flush: true);
+        
+        setState(() {
+          _gradedStudents += 1;
+          // تصفير الحقول للعملية التالية
+          _secretIdResult = "سيظهر هنا الرقم السري";
+          _gradeController.clear();
+        });
+
+        _showSnackBar("💾 تم حفظ الدرجة بنجاح في الملف الأصلي!");
+
+        // إعادة تفعيل الكاميرا تلقائياً للورقة التالية
+        if (_isScanningActive) {
+          _cameraController.start();
+        }
+      }
+    } catch (e) {
+      _showSnackBar("❌ فشل أثناء حفظ وتعديل الملف: $e");
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -241,6 +307,9 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     Color primaryPurple = const Color(0xFF7B1FA2);
     Color fieldColor = const Color(0xFF212121);
+
+    // تفعيل زر الحفظ فقط عند وجود بيانات جاهزة للحفظ
+    bool isSaveButtonEnabled = _secretIdResult != "سيظهر هنا الرقم السري" && !_isLoading;
 
     return Scaffold(
       backgroundColor: const Color(0xFF4A148C),
@@ -375,7 +444,7 @@ class _MainScreenState extends State<MainScreen> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       const Text(
-                        "الدرجة :",
+                        "الدرجة المكتشفة (يمكنك تعديلها) :",
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -386,7 +455,7 @@ class _MainScreenState extends State<MainScreen> {
                         controller: _gradeController,
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white),
+                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                         decoration: InputDecoration(
                           fillColor: fieldColor,
                           filled: true,
@@ -448,16 +517,20 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            
+            // زر حفظ الدرجة المحدث
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
+                backgroundColor: Colors.blueAccent,
                 minimumSize: const Size.fromHeight(50),
               ),
-              onPressed: null, 
-              child: const Text(
-                "حفظ وتعديل الملف الأصلي",
-                style: TextStyle(fontSize: 18, color: Colors.white),
-              ),
+              onPressed: isSaveButtonEnabled ? _saveGradeToExcel : null, 
+              child: _isLoading 
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
+                : const Text(
+                    "تأكيد وحفظ الدرجة في الملف الأصلي",
+                    style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
             ),
             const SizedBox(height: 20),
 
