@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/transform/1.0"
-    package="com.baithi.stugrascan">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     
     <!-- صلاحيات الكاميرا وقراءة الملفات -->
     <uses-permission android:name="android.permission.CAMERA" />
