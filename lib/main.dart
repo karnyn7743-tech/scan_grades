@@ -8,9 +8,22 @@ import 'services/ocr_barcode_service.dart';
 import 'utils/digit_converter.dart';
 
 void main() {
-  // تهيئة واجهات فلوتر الأساسية بشكل سليم ومستقر
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const StugraScanApp());
+  // تغليف بداية تشغيل التطبيق بالكامل لحمايته من أي انهيار برمجيات خارجية
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    runApp(const StugraScanApp());
+  }, (error, stackTrace) {
+    debugPrint("حدث انهيار في دالة main وتم اصطياده: $error");
+  });
+}
+
+// دالة مساعدة عامة لتأمين runZonedGuarded
+void runZonedGuarded(void Function() body, void Function(Object error, StackTrace stack) onError) {
+  try {
+    body();
+  } catch (e, s) {
+    onError(e, s);
+  }
 }
 
 class StugraScanApp extends StatefulWidget {
@@ -48,8 +61,9 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  final ExcelService _excelService = ExcelService();
-  final OcrBarcodeService _ocrBarcodeService = OcrBarcodeService();
+  // حماية بناء الخدمات وتأخير تهيئتها لتجنب الانهيار الفوري
+  late ExcelService _excelService;
+  late OcrBarcodeService _ocrBarcodeService;
   
   CameraController? _cameraController;
   String _fileName = "لم يتم اختيار ملف";
@@ -65,23 +79,36 @@ class _MainScreenState extends State<MainScreen> {
   bool _isFlashOn = false;
   int? _activeRowIndex;
   bool _isCameraInitialized = false;
+  String _initializationError = ""; // متغير لحفظ أي خطأ يحدث في الخلفية
 
   @override
   void initState() {
     super.initState();
-    // استدعاء جلب الصلاحيات وتهيئة الكاميرا بعد تحميل الواجهات لمنع الانهيار
-    _initializeCameraAndPermissions();
+    _safeInitServices();
+  }
+
+  // دالة تهيئة آمنة جداً ومحاطة بالكامل بـ try-catch
+  void _safeInitServices() {
+    try {
+      _excelService = ExcelService();
+      _ocrBarcodeService = OcrBarcodeService();
+      // استدعاء جلب الصلاحيات والكاميرا بعد التأكد من الخدمات
+      _initializeCameraAndPermissions();
+    } catch (e) {
+      setState(() {
+        _initializationError = "خطأ في تهيئة الخدمات الخارجية: $e";
+      });
+      debugPrint(_initializationError);
+    }
   }
 
   Future<void> _initializeCameraAndPermissions() async {
-    // 1. طلب الصلاحيات بشكل تتابعي آمن ومتوافق مع نظام أندرويد
-    var cameraStatus = await Permission.camera.request();
-    await Permission.storage.request();
-    await Permission.manageExternalStorage.request();
+    try {
+      var cameraStatus = await Permission.camera.request();
+      await Permission.storage.request();
+      await Permission.manageExternalStorage.request();
 
-    // 2. فحص حالة الاستجابة واستدعاء الكاميرات داخل البلوك بشكل محمي
-    if (cameraStatus.isGranted) {
-      try {
+      if (cameraStatus.isGranted) {
         final availableDevices = await availableCameras();
         if (availableDevices.isNotEmpty) {
           _cameraController = CameraController(
@@ -97,34 +124,40 @@ class _MainScreenState extends State<MainScreen> {
             });
           }
         }
-      } catch (e) {
-        debugPrint("تعذر تهيئة عتاد الكاميرا الداخلي: $e");
       }
+    } catch (e) {
+      setState(() {
+        _initializationError = "خطأ في تهيئة الكاميرا أو الأذونات: $e";
+      });
     }
   }
 
   Future<void> _pickExcelFile() async {
-    String targetPath = "/storage/emulated/0/Download/درجات الطلاب";
-    Directory targetDir = Directory(targetPath);
-    if (!await targetDir.exists()) {
-      await targetDir.create(recursive: true);
-    }
+    try {
+      String targetPath = "/storage/emulated/0/Download/درجات الطلاب";
+      Directory targetDir = Directory(targetPath);
+      if (!await targetDir.exists()) {
+        await targetDir.create(recursive: true);
+      }
 
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['xlsx'],
-    );
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+      );
 
-    if (result != null && result.files.single.path != null) {
-      String filePath = result.files.single.path!;
-      setState(() {
-        _fileName = result.files.single.name;
-        _subjects = _excelService.getSubjectHeaders(filePath);
-        _selectedSubject = null;
-        _selectedSubjectIndex = -1;
-        _totalStudents = 0;
-        _gradedStudents = 0;
-      });
+      if (result != null && result.files.single.path != null) {
+        String filePath = result.files.single.path!;
+        setState(() {
+          _fileName = result.files.single.name;
+          _subjects = _excelService.getSubjectHeaders(filePath);
+          _selectedSubject = null;
+          _selectedSubjectIndex = -1;
+          _totalStudents = 0;
+          _gradedStudents = 0;
+        });
+      }
+    } catch (e) {
+      _showDialog("خطأ", "تعذر اختيار الملف: $e");
     }
   }
 
@@ -257,6 +290,19 @@ class _MainScreenState extends State<MainScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // في حال وجود خطأ في تشغيل أي مكتبة، سيظهر هنا بوضوح بدلاً من إغلاق التطبيق
+            if (_initializationError.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.bottom(12),
+                decoration: BoxDecoration(color: Colors.red.shade900, borderRadius: BorderRadius.circular(8)),
+                child: Text(
+                  _initializationError,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size.fromHeight(50)),
               onPressed: _pickExcelFile,
@@ -367,7 +413,7 @@ class _MainScreenState extends State<MainScreen> {
                     )
                   : const Center(
                       child: Text(
-                        "جاري تهيئة الكاميرا وطلب الصلاحيات بأمان...",
+                        "جاري تهيئة الكاميرا بأمان...",
                         style: TextStyle(color: Colors.white70),
                         textAlign: TextAlign.center,
                       ),
