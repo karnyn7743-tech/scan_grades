@@ -16,10 +16,11 @@ class ExcelService {
     var sheet = excelInstance!.tables[sheetName]!;
     List<String> subjects = [];
     
-    if (sheet.maxCols > 4) {
+    // تم تعديل maxCols إلى maxColumns للتوافق مع التحديث الجديد للمكتبة
+    if (sheet.maxColumns > 4) {
       // من العمود 4 (Index 4 وهو E) إلى العمود 18 (Index 18 وهو S)
       for (int i = 4; i <= 18; i++) {
-        if (i < sheet.maxCols && sheet.rows[0][i] != null) {
+        if (i < sheet.maxColumns && sheet.rows[0][i] != null) {
           subjects.add(sheet.rows[0][i]!.value.toString());
         }
       }
