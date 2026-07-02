@@ -7,16 +7,14 @@ import 'services/excel_service.dart';
 import 'services/ocr_barcode_service.dart';
 import 'utils/digit_converter.dart';
 
-void main() async {
+void main() {
+  // تهيئة واجهات فلوتر الأساسية بشكل سليم ومستقر
   WidgetsFlutterBinding.ensureInitialized();
-  // جلب الكاميرات المتاحة في جهاز الأندرويد قبل تشغيل التطبيق
-  final cameras = await availableCameras();
-  runApp(StugraScanApp(cameras: cameras));
+  runApp(const StugraScanApp());
 }
 
 class StugraScanApp extends StatefulWidget {
-  final List<CameraDescription> cameras;
-  const StugraScanApp({super.key, required this.cameras});
+  const StugraScanApp({super.key});
 
   @override
   State<StugraScanApp> createState() => _StugraScanAppState();
@@ -32,7 +30,6 @@ class _StugraScanAppState extends State<StugraScanApp> {
       debugShowCheckedModeBanner: false,
       theme: isDarkMode ? ThemeData.dark() : ThemeData.light(),
       home: MainScreen(
-        cameras: widget.cameras,
         isDarkMode: isDarkMode,
         onThemeChanged: (val) => setState(() => isDarkMode = val),
       ),
@@ -41,11 +38,10 @@ class _StugraScanAppState extends State<StugraScanApp> {
 }
 
 class MainScreen extends StatefulWidget {
-  final List<CameraDescription> cameras;
   final bool isDarkMode;
   final ValueChanged<bool> onThemeChanged;
 
-  const MainScreen({super.key, required this.cameras, required this.isDarkMode, required this.onThemeChanged});
+  const MainScreen({super.key, required this.isDarkMode, required this.onThemeChanged});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -73,26 +69,36 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    // استدعاء جلب الصلاحيات وتهيئة الكاميرا بعد تحميل الواجهات لمنع الانهيار
     _initializeCameraAndPermissions();
   }
 
   Future<void> _initializeCameraAndPermissions() async {
+    // 1. طلب الصلاحيات بشكل تتابعي آمن ومتوافق مع نظام أندرويد
     var cameraStatus = await Permission.camera.request();
-    var storageStatus = await Permission.storage.request();
+    await Permission.storage.request();
     await Permission.manageExternalStorage.request();
 
-    if (cameraStatus.isGranted && widget.cameras.isNotEmpty) {
-      _cameraController = CameraController(
-        widget.cameras.first,
-        ResolutionPreset.medium,
-        enableAudio: false,
-      );
+    // 2. فحص حالة الاستجابة واستدعاء الكاميرات داخل البلوك بشكل محمي
+    if (cameraStatus.isGranted) {
+      try {
+        final availableDevices = await availableCameras();
+        if (availableDevices.isNotEmpty) {
+          _cameraController = CameraController(
+            availableDevices.first,
+            ResolutionPreset.medium,
+            enableAudio: false,
+          );
 
-      await _cameraController!.initialize();
-      if (mounted) {
-        setState(() {
-          _isCameraInitialized = true;
-        });
+          await _cameraController!.initialize();
+          if (mounted) {
+            setState(() {
+              _isCameraInitialized = true;
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint("تعذر تهيئة عتاد الكاميرا الداخلي: $e");
       }
     }
   }
@@ -132,7 +138,6 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // التقاط الصورة الفعلي من الكاميرا ومعالجتها عبر حزمة الذكاء الاصطناعي المحلية
   Future<void> _captureAndScan() async {
     if (_selectedSubjectIndex == -1 || _cameraController == null || !_cameraController!.value.isInitialized) {
       _showDialog("تنبيه", "الرجاء اختيار ملف إكسل والمادة أولاً وتفعيل الكاميرا.");
@@ -141,14 +146,11 @@ class _MainScreenState extends State<MainScreen> {
 
     try {
       final XFile image = await _cameraController!.takePicture();
-      
-      // إرسال الصورة لملف الخدمة لاستخراج النصوص والـ QR أوفلاين
       final results = await _ocrBarcodeService.processImageSection(image);
       
       String rawText = results['text'] ?? "";
       String scannedQrCode = results['qr'] ?? "";
 
-      // 1. فحص الـ QR code أولاً في ملف الإكسل
       if (scannedQrCode.isEmpty) {
         _showDialog("تنبيه", "لم يتم العثور على رمز استجابة سريع (QR) في هذه المنطقة!");
         return;
@@ -161,20 +163,17 @@ class _MainScreenState extends State<MainScreen> {
       }
 
       if (status['hasGrade']) {
-        _showDialog("تنبيه", "تم بالفعل إدخال درجة هذا الطالب مسبقاً.");
+        _showDialog("تنبيه", "تم بالفعل إدخل درجة هذا الطالب مسبقاً.");
         return;
       }
 
-      // 2. فحص كود المادة المطبوع والدرجة المكتوبة بخط اليد من النص المستخرج
-      int expectedCode = _selectedSubjectIndex - 3; // العمود E يعطي كود 1
+      int expectedCode = _selectedSubjectIndex - 3; 
       
-      // فحص إذا كان النص يحتوي على كود المادة الصحيح
       if (!rawText.contains(expectedCode.toString())) {
         _showDialog("تنبيه", "المادة التي ستدخل درجاتها ليست التي تم اختيارها!");
         return;
       }
 
-      // تحويل وتنظيف الأرقام الهندية/العربية المستخرجة لتمثيل الدرجة
       String cleanGrade = DigitConverter.cleanAndConvert(rawText.replaceAll(expectedCode.toString(), ""));
 
       setState(() {
@@ -357,7 +356,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 20),
 
-            // عرض شاشة الكاميرا الحقيقية والعدسة المباشرة داخل التطبيق
             Container(
               width: double.infinity,
               height: 220,
@@ -369,7 +367,7 @@ class _MainScreenState extends State<MainScreen> {
                     )
                   : const Center(
                       child: Text(
-                        "جاري تهيئة الكاميرا أو صلاحية الكاميرا مرفوضة...",
+                        "جاري تهيئة الكاميرا وطلب الصلاحيات بأمان...",
                         style: TextStyle(color: Colors.white70),
                         textAlign: TextAlign.center,
                       ),
