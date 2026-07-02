@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:excel/excel.dart' as px; // هنا قمنا بإعطاء اختصار للمكتبة لحل مشكلة تداخل الاسماء
+import 'package:excel/excel.dart' as px;
+import 'package:mobile_scanner/mobile_scanner.dart'; // استيراد حزمة الكاميرا الجديدة
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,11 +37,19 @@ class _MainScreenState extends State<MainScreen> {
   String? _selectedSubject;
   bool _isLoading = false;
 
-  final String _secretIdResult = "سيظهر هنا الرقم السري";
+  String _secretIdResult = "سيظهر هنا الرقم السري";
   final TextEditingController _gradeController = TextEditingController();
 
   int _totalStudents = 0;
   int _gradedStudents = 0;
+  
+  // متحكم الكاميرا وفلاش المصابيح
+  final MobileScannerController _cameraController = MobileScannerController(
+    autoStart: false, // لا تبدأ الكاميرا إلا عند الضغط على زر ابدأ المسح
+    torchEnabled: false,
+  );
+  bool _isScanningActive = false;
+  bool _isTorchOn = false;
 
   Future<void> _pickAndParseExcel() async {
     setState(() {
@@ -61,12 +70,11 @@ class _MainScreenState extends State<MainScreen> {
         String nameOfFile = result.files.single.name;
         
         var bytes = File(_selectedFilePath!).readAsBytesSync();
-        var excel = px.Excel.decodeBytes(bytes); // استخدام الاختصار px
+        var excel = px.Excel.decodeBytes(bytes);
         
         String firstSheet = excel.tables.keys.first;
         var sheet = excel.tables[firstSheet];
 
-        // تم استبدال maxCols بـ maxColumns المتوافقة مع الإصدار الجديد
         if (sheet != null && sheet.maxColumns > 0) {
           var firstRow = sheet.rows.first; 
           List<String> tempSubjects = [];
@@ -90,6 +98,7 @@ class _MainScreenState extends State<MainScreen> {
             _fileName = nameOfFile;
             _subjects = tempSubjects;
             _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0; 
+            _gradedStudents = 0; // إعادة تصغير العداد عند اختيار ملف جديد
           });
 
           if (_subjects.isEmpty) {
@@ -113,6 +122,24 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  // تفعيل الكاميرا لبدء الفحص والمسح
+  void _toggleScanning() {
+    if (_selectedSubject == null) {
+      _showSnackBar("يرجى اختيار المادة المراد رصدها أولاً قبل بدء المسح!");
+      return;
+    }
+
+    setState(() {
+      _isScanningActive = !_isScanningActive;
+    });
+
+    if (_isScanningActive) {
+      _cameraController.start();
+    } else {
+      _cameraController.stop();
+    }
+  }
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
@@ -120,6 +147,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void dispose() {
     _gradeController.dispose();
+    _cameraController.dispose();
     super.dispose();
   }
 
@@ -135,9 +163,17 @@ class _MainScreenState extends State<MainScreen> {
         centerTitle: true,
         backgroundColor: primaryPurple,
         actions: [
+          // تفعيل زر الفلاش للتحكم بمصباح الكاميرا أثناء الفحص
           IconButton(
-            icon: const Icon(Icons.flash_off),
-            onPressed: () {}, 
+            icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
+            onPressed: () {
+              if (_isScanningActive) {
+                _cameraController.toggleTorch();
+                setState(() {
+                  _isTorchOn = !_isTorchOn;
+                });
+              }
+            }, 
           ),
         ],
       ),
@@ -241,7 +277,7 @@ class _MainScreenState extends State<MainScreen> {
               ),
               child: Text(
                 _secretIdResult,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -296,13 +332,14 @@ class _MainScreenState extends State<MainScreen> {
                         decoration: BoxDecoration(
                           color: fieldColor,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade700), // تم التوجيه المباشر لـ فلاتر تلقائياً
+                          border: Border.all(color: Colors.grey.shade700),
                         ),
                         child: Text(
                           "$_gradedStudents / $_totalStudents",
                           style: const TextStyle(
                             color: Colors.greenAccent,
                             fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
                           textAlign: TextAlign.center,
                         ),
@@ -314,15 +351,16 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 20),
 
+            // زر التبديل لتشغيل وإيقاف مسح الكاميرا
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
+                backgroundColor: _isScanningActive ? Colors.red : Colors.green,
                 minimumSize: const Size.fromHeight(50),
               ),
-              onPressed: () {}, 
-              child: const Text(
-                "ابدأ المسح",
-                style: TextStyle(fontSize: 18, color: Colors.white),
+              onPressed: _toggleScanning, 
+              child: Text(
+                _isScanningActive ? "إيقاف المسح مؤقتاً" : "ابدأ المسح بالكاميرا",
+                style: const TextStyle(fontSize: 18, color: Colors.white),
               ),
             ),
             const SizedBox(height: 8),
@@ -339,20 +377,45 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 20),
 
+            // حاوية الكاميرا الحية المتطورة
             Container(
               width: double.infinity,
-              height: 220,
+              height: 250,
               decoration: BoxDecoration(
                 color: Colors.black,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey, width: 2), // تم التوجيه المباشر لـ فلاتر تلقائياً
+                border: Border.all(color: _isScanningActive ? Colors.greenAccent : Colors.grey, width: 2),
               ),
-              child: const Center(
-                child: Text(
-                  "وضع الفحص الصامت للواجهة الرسومية فقط\n(الكاميرا معطلة مؤقتاً)",
-                  style: TextStyle(color: Colors.white70),
-                  textAlign: TextAlign.center,
-                ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: _isScanningActive
+                    ? MobileScanner(
+                        controller: _cameraController,
+                        onDetect: (capture) {
+                          final List<Barcode> barcodes = capture.barcodes;
+                          if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                            final String codeValue = barcodes.first.rawValue!;
+                            
+                            // إيقاف ميكانيزم المسح اللحظي لتفادي التكرار حتى نعتمد الدرجة
+                            _cameraController.stop();
+                            
+                            setState(() {
+                              _secretIdResult = codeValue; // إظهار الرقم السري المستخرج في الحقل المخصص له
+                              _gradedStudents += 1;       // زيادة العداد بمقدار طالب
+                              _isScanningActive = false;  // إغلاق الكاميرا تلقائياً بانتظار إدخال الدرجة والمسح التالي
+                            });
+                            
+                            _showSnackBar("تم التقاط الكود بنجاح: $codeValue");
+                          }
+                        },
+                      )
+                    : const Center(
+                        child: Text(
+                          "انقر فوق 'ابدأ المسح بالكاميرا' لتشغيل الفحص الحي",
+                          style: TextStyle(color: Colors.white70),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
               ),
             ),
           ],
