@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:excel/excel.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,20 +30,99 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  // متغيرات وهمية فقط لعرض التنسيق كما هو
-  final String _fileName = "لم يتم اختيار ملف (نسخة فحص صامتة)";
-  final List<String> _subjects = [
-    "القرآن الكريم",
-    "التربية الإسلامية",
-    "اللغة العربية",
-    "الرياضيات",
-  ];
+  // متغيرات حقيقية لإدارة الملف والمواد المختارة
+  String _fileName = "لم يتم اختيار ملف الكنترول بعد";
+  String? _selectedFilePath;
+  List<String> _subjects = []; 
   String? _selectedSubject;
+  bool _isLoading = false;
+
   final String _secretIdResult = "سيظهر هنا الرقم السري";
   final TextEditingController _gradeController = TextEditingController();
 
-  final int _totalStudents = 0;
-  final int _gradedStudents = 0;
+  int _totalStudents = 0;
+  int _gradedStudents = 0;
+
+  // دالة اختيار ملف الأكسيل وقراءة المواد من E إلى S في الصف الأول
+  Future<void> _pickAndParseExcel() async {
+    setState(() {
+      _isLoading = true;
+      _subjects.clear();
+      _selectedSubject = null;
+      _fileName = "جاري قراءة الملف...";
+    });
+
+    try {
+      // 1. فتح نافذة اختيار الملف وتصفيته ليقبل صيغ الإكسيل فقط
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx', 'xls'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        _selectedFilePath = result.files.single.path;
+        String nameOfFile = result.files.single.name;
+        
+        // 2. قراءة بايتات الملف وفك التشفير عبر مكتبة excel
+        var bytes = File(_selectedFilePath!).readAsBytesSync();
+        var excel = Excel.decodeBytes(bytes);
+        
+        // 3. جلب ورقة العمل الأولى (النشطة)
+        String firstSheet = excel.tables.keys.first;
+        var sheet = excel.tables[firstSheet];
+
+        if (sheet != null && sheet.maxCols > 0) {
+          var firstRow = sheet.rows.first; 
+          List<String> tempSubjects = [];
+
+          // النطاق المحدد: من العمود E (اندكس 4) إلى S (اندكس 18)
+          int startColumn = 4;  // E
+          int endColumn = 18;  // S
+
+          for (int i = startColumn; i <= endColumn; i++) {
+            if (i < firstRow.length) {
+              var cellValue = firstRow[i]?.value;
+              if (cellValue != null) {
+                String subjectName = cellValue.toString().trim();
+                if (subjectName.isNotEmpty) {
+                  tempSubjects.add(subjectName);
+                }
+              }
+            }
+          }
+
+          setState(() {
+            _fileName = nameOfFile;
+            _subjects = tempSubjects;
+            // يمكنك هنا أيضاً تحديث عدد الطلاب الإجمالي من قراءة الأسطر لاحقاً
+            _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0; 
+          });
+
+          if (_subjects.isEmpty) {
+            _showSnackBar("تنبيه: لم يتم العثور على مواد في الأعمدة من E إلى S في الصف الأول.");
+          }
+        }
+      } else {
+        // إذا ألغى المستخدم الاختيار
+        setState(() {
+          _fileName = _selectedFilePath != null ? _selectedFilePath!.split('/').last : "لم يتم اختيار ملف الكنترول بعد";
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _fileName = "فشل في قراءة ملف الأكسيل";
+      });
+      _showSnackBar("حدث خطأ أثناء المعالجة: $e");
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   void dispose() {
@@ -62,7 +144,7 @@ class _MainScreenState extends State<MainScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.flash_off),
-            onPressed: () {}, // صامت
+            onPressed: () {}, 
           ),
         ],
       ),
@@ -70,17 +152,19 @@ class _MainScreenState extends State<MainScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // زر اختيار ملف الأكسيل
+            // زر اختيار ملف الأكسيل مرتبط بالدالة البرمجية الحقيقية
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 minimumSize: const Size.fromHeight(50),
               ),
-              onPressed: () {}, // صامت
-              child: const Text(
-                "اختر ملف الأكسيل الأصلي",
-                style: TextStyle(fontSize: 18, color: Colors.white),
-              ),
+              onPressed: _isLoading ? null : _pickAndParseExcel, 
+              child: _isLoading 
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Text(
+                    "اختر ملف الأكسيل الأصلي",
+                    style: TextStyle(fontSize: 18, color: Colors.white),
+                  ),
             ),
             const SizedBox(height: 8),
             Container(
@@ -98,7 +182,7 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 12),
 
-            // قائمة اختيار المادة
+            // قائمة اختيار المادة الديناميكية
             const Align(
               alignment: Alignment.centerRight,
               child: Text(
@@ -120,12 +204,13 @@ class _MainScreenState extends State<MainScreen> {
                 child: DropdownButton<String>(
                   dropdownColor: fieldColor,
                   isExpanded: true,
-                  hint: const Text(
-                    "انقر لتحديد المادة (تجريبي)",
+                  hint: Text(
+                    _subjects.isEmpty ? "يرجى اختيار ملف الأكسيل لجلب المواد" : "انقر لتحديد المادة المفتوحة ورصدها",
                     style: const TextStyle(color: Colors.grey),
                   ),
                   value: _selectedSubject,
-                  items: _subjects
+                  // تتعطل القائمة تلقائياً إذا كانت قائمة المواد فارغة
+                  items: _subjects.isEmpty ? null : _subjects
                       .map(
                         (sub) => DropdownMenuItem(
                           value: sub,
@@ -247,7 +332,7 @@ class _MainScreenState extends State<MainScreen> {
                 backgroundColor: Colors.green,
                 minimumSize: const Size.fromHeight(50),
               ),
-              onPressed: () {}, // صامت
+              onPressed: () {}, 
               child: const Text(
                 "ابدأ المسح",
                 style: TextStyle(fontSize: 18, color: Colors.white),
@@ -259,7 +344,7 @@ class _MainScreenState extends State<MainScreen> {
                 backgroundColor: Colors.green,
                 minimumSize: const Size.fromHeight(50),
               ),
-              onPressed: null, // معطل صامتاً
+              onPressed: null, 
               child: const Text(
                 "حفظ وتعديل الملف الأصلي",
                 style: TextStyle(fontSize: 18, color: Colors.white),
