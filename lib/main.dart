@@ -223,8 +223,8 @@ class _MainScreenState extends State<MainScreen> {
       // البحث عن صف الطالب بواسطة الرقم السري (بافتراض أن الرقم السري في العمود الأول A أو الثاني B)
       // سنبحث في أول عمودين للتأكد من مطابقة الرقم السري
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
-     // var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex)).value;
+        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex)).value;
 
         if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
           // إسقاط الدرجة في خانة المادة المحددة لهذا الصف
