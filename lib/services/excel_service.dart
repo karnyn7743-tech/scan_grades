@@ -43,15 +43,17 @@ class ExcelService {
     return {'exists': false, 'hasGrade': false, 'rowIndex': -1};
   }
 
-  // حفظ الدرجة في الخلية المستهدفة بشكل فوري
+  // التعديل النهائي المضمون لحفظ الدرجة في الخلية المستهدفة بالتوافق مع التحديث الجديد
   void saveGrade(int rowIndex, int subjectColumnIndex, String grade) {
     var sheet = excelInstance!.tables[sheetName]!;
-    sheet.updateCell(
-      CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex),
-      CellValue.withValue(double.tryParse(grade) ?? grade),
-    );
     
-    // حفظ التعديلات على الملف الأصلي أوفلاين
+    // تحديد موقع الخلية بدقة
+    var cellIndex = CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex);
+    
+    // استخدام TextCellValue لتجنب خطأ الـ Member not found تماماً
+    sheet.cell(cellIndex).value = TextCellValue(grade);
+    
+    // حفظ التعديلات على الملف الأصلي أوفلاين في الذاكرة
     var fileBytes = excelInstance!.encode();
     if (fileBytes != null && currentFilePath != null) {
       File(currentFilePath!)
