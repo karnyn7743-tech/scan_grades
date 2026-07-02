@@ -7,7 +7,7 @@ plugins {
 android {
     // حل مشكلة الـ Manifest
     namespace = "com.baithi.stugrascan"
-    compileSdk = 34 // تحديد رقم ثابت ومتوافق مباشرة لمنع خطأ المتغير غير المعرف
+    compileSdk = 35 // تحديد رقم ثابت ومتوافق مباشرة لمنع خطأ المتغير غير المعرف
     
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -17,7 +17,7 @@ android {
     defaultConfig {
         applicationId = "com.baithi.stugrascan"
         minSdk = 21 
-        targetSdk = 34 // رقم ثابت لتأمين عملية تجميع حزم الـ ML Kit
+        targetSdk = 35 // رقم ثابت لتأمين عملية تجميع حزم الـ ML Kit
         versionCode = 1
         versionName = "1.0.0"
     }
