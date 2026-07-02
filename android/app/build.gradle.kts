@@ -5,36 +5,28 @@ plugins {
 }
 
 android {
-    // حل مشكلة الـ Manifest النهائي متوافق مع صيغة Kotlin DSL
+    // حل مشكلة الـ Manifest
     namespace = "com.baithi.stugrascan"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 34 // تحديد رقم ثابت ومتوافق مباشرة لمنع خطأ المتغير غير المعرف
     
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
-
-    sourceSets {
-        getByName("main").java.srcDirs("src/main/kotlin")
-    }
-
     defaultConfig {
         applicationId = "com.baithi.stugrascan"
-        // دعم ميزات الذكاء الاصطناعي بشكل مستقر
         minSdk = 21 
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutterVersionCode.toInt()
-        versionName = flutterVersionName
+        targetSdk = 34 // رقم ثابت لتأمين عملية تجميع حزم الـ ML Kit
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     buildTypes {
         getByName("release") {
             signingConfig = signingConfigs.getByName("debug")
-            minifyEnabled = false
+            // تعديل الكود ليتناسب مع البنية القواعدية لـ Kotlin DSL
+            isMinifyEnabled = false
             isShrinkResources = false
         }
     }
@@ -45,5 +37,7 @@ flutter {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version")
+    // تحديث السطر ليعتمد على حزمة لغة كوتلن المدمجة تلقائياً لتجنب خطأ kotlin_version
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom"))
+    implementation("org.jetbrains.kotlin:kotlin-stdlib")
 }
