@@ -32,10 +32,10 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug // أو إعدادات التوقيع الخاصة بك
-            minifyEnabled true // يمكنك إبقاؤه true الآن بأمان
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true // لاحظ إضافة is وتحويل القيمة إلى منطقية
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") // إضافة أقواس وعلامات تنصيص مزدوجة
+      }
     }
     
 flutter {
