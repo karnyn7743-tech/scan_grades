@@ -2,7 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
-import 'package:mobile_scanner/mobile_scanner.dart'; // استيراد حزمة الكاميرا الجديدة
+import 'package:mobile_scanner/mobile_scanner.dart'; 
+// استيراد مكتبة التعرف على النصوص من جوجل مكسوّة بالكامل
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,11 +47,14 @@ class _MainScreenState extends State<MainScreen> {
   
   // متحكم الكاميرا وفلاش المصابيح
   final MobileScannerController _cameraController = MobileScannerController(
-    autoStart: false, // لا تبدأ الكاميرا إلا عند الضغط على زر ابدأ المسح
+    autoStart: false, 
     torchEnabled: false,
   );
   bool _isScanningActive = false;
   bool _isTorchOn = false;
+
+  // تعريف قارئ النصوص (OCR)
+  final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
   Future<void> _pickAndParseExcel() async {
     setState(() {
@@ -98,7 +103,7 @@ class _MainScreenState extends State<MainScreen> {
             _fileName = nameOfFile;
             _subjects = tempSubjects;
             _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0; 
-            _gradedStudents = 0; // إعادة تصغير العداد عند اختيار ملف جديد
+            _gradedStudents = 0; 
           });
 
           if (_subjects.isEmpty) {
@@ -120,6 +125,111 @@ class _MainScreenState extends State<MainScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  // دالة معالجة الصورة الحية والتعرف الذكي على الكود والدرجة والمادة
+  Future<void> _processCapturedImage(BarcodeCapture capture) async {
+    final List<Barcode> barcodes = capture.barcodes;
+    
+    // 1. التقاط الرقم السري من الـ QR Code أولاً
+    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+      final String qrValue = barcodes.first.rawValue!;
+      
+      // إيقاف مؤقت لمنع التكرار أثناء المعالجة
+      _cameraController.stop();
+
+      if (capture.image != null) {
+        final InputImage inputImage = InputImage.fromBytes(
+          bytes: capture.image!,
+          metadata: InputImageMetadata(
+            size: Size(capture.width!.toDouble(), capture.height!.toDouble()),
+            rotation: InputImageRotation.rotation0, 
+            format: InputImageFormat.nv21, 
+            bytesPerRow: capture.width!,
+          ),
+        );
+
+        try {
+          final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
+          
+          // تجميع الأسطر النصية المكتشفة مع إحداثياتها الأفقية (محور X)
+          List<Map<String, dynamic>> textElements = [];
+
+          for (TextBlock block in recognizedText.blocks) {
+            for (TextLine line in block.lines) {
+              String cleanText = _extractDigits(line.text.trim());
+              if (cleanText.isNotEmpty) {
+                textElements.add({
+                  'text': cleanText,
+                  'x': line.boundingBox.left, // الإحداثي الأفقي للعنصر
+                });
+              }
+            }
+          }
+
+          String detectedSubjectCode = "";
+          String detectedGrade = "";
+
+          if (textElements.isNotEmpty) {
+            // فرز العناصر بناءً على موقعها الأفقي (من اليمين إلى اليسار)
+            textElements.sort((a, b) => a['x'].compareTo(b['x']));
+
+            // بناءً على الصورة: كود المادة في جهة، والدرجة في الجهة المقابلة تماماً
+            if (textElements.length >= 2) {
+              detectedSubjectCode = textElements.first['text']; // الأقرب لجهة اليمين (كود المادة المطبوع)
+              detectedGrade = textElements.last['text'];        // الأقرب لجهة اليسار (الدرجة بخط اليد)
+            } else if (textElements.length == 1) {
+              detectedGrade = textElements.first['text'];
+            }
+          }
+
+          // الحصول على الترتيب (Index) للمادة المختارة حالياً من القائمة لمطابقتها
+          int currentSubjectIndex = _subjects.indexOf(_selectedSubject!) + 1; 
+
+          // التحقق الأمني من كود المادة
+          if (detectedSubjectCode.isNotEmpty && detectedSubjectCode != currentSubjectIndex.toString()) {
+            _showSnackBar("⚠️ تنبيه: كود المادة المقروء ($detectedSubjectCode) لا يطابق المادة المختارة ($_selectedSubject)!");
+            _cameraController.start(); // إعادة تشغيل الكاميرا للمحاولة مجدداً
+            setState(() {
+              _isScanningActive = true;
+            });
+            return;
+          }
+
+          // رصد البيانات بنجاح وتحديث الواجهة
+          setState(() {
+            _secretIdResult = qrValue; // عرض الرقم السري
+            if (detectedGrade.isNotEmpty) {
+              _gradeController.text = detectedGrade; // عرض الدرجة تلقائياً
+            }
+            _gradedStudents += 1; // تحديث عداد الطلاب
+            _isScanningActive = false;
+          });
+
+          _showSnackBar("✅ تم رصد الطالب بنجاح بمادة $_selectedSubject");
+
+        } catch (e) {
+          // حل احتياطي في حال وجود قيود على معالجة الصورة الحية
+          setState(() {
+            _secretIdResult = qrValue;
+            _gradedStudents += 1;
+            _isScanningActive = false;
+          });
+          _showSnackBar("تم التقاط الرقم السري: $qrValue (أدخل الدرجة يدوياً)");
+        }
+      } else {
+        setState(() {
+          _secretIdResult = qrValue;
+          _gradedStudents += 1;
+          _isScanningActive = false;
+        });
+      }
+    }
+  }
+
+  // دالة مساعدة لتنقية الأرقام من النصوص وحذف أي فراغات أو أحرف إضافية
+  String _extractDigits(String input) {
+    return input.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
   // تفعيل الكاميرا لبدء الفحص والمسح
@@ -148,6 +258,7 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     _gradeController.dispose();
     _cameraController.dispose();
+    _textRecognizer.dispose(); // إغلاق مستخرج النصوص لتحرير الذاكرة
     super.dispose();
   }
 
@@ -163,7 +274,6 @@ class _MainScreenState extends State<MainScreen> {
         centerTitle: true,
         backgroundColor: primaryPurple,
         actions: [
-          // تفعيل زر الفلاش للتحكم بمصباح الكاميرا أثناء الفحص
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
             onPressed: () {
@@ -351,7 +461,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 20),
 
-            // زر التبديل لتشغيل وإيقاف مسح الكاميرا
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: _isScanningActive ? Colors.red : Colors.green,
@@ -377,7 +486,7 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 20),
 
-            // حاوية الكاميرا الحية المتطورة
+            // حاوية الكاميرا المرتبطة بدالة الـ OCR الجديدة
             Container(
               width: double.infinity,
               height: 250,
@@ -392,21 +501,7 @@ class _MainScreenState extends State<MainScreen> {
                     ? MobileScanner(
                         controller: _cameraController,
                         onDetect: (capture) {
-                          final List<Barcode> barcodes = capture.barcodes;
-                          if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                            final String codeValue = barcodes.first.rawValue!;
-                            
-                            // إيقاف ميكانيزم المسح اللحظي لتفادي التكرار حتى نعتمد الدرجة
-                            _cameraController.stop();
-                            
-                            setState(() {
-                              _secretIdResult = codeValue; // إظهار الرقم السري المستخرج في الحقل المخصص له
-                              _gradedStudents += 1;       // زيادة العداد بمقدار طالب
-                              _isScanningActive = false;  // إغلاق الكاميرا تلقائياً بانتظار إدخال الدرجة والمسح التالي
-                            });
-                            
-                            _showSnackBar("تم التقاط الكود بنجاح: $codeValue");
-                          }
+                          _processCapturedImage(capture);
                         },
                       )
                     : const Center(
