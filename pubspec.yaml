@@ -1,0 +1,30 @@
+name: stugrascan
+description: "Educational grade automation system for school control panels."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  
+  # مكتبات إدارة الملفات والإكسل (أوفلاين)
+  excel: ^4.0.6
+  file_picker: ^8.0.0
+  permission_handler: ^11.3.0
+  
+  # مكتبات الكاميرا والذكاء الاصطناعي أوفلاين (OCR & Barcode)
+  camera: ^0.11.0
+  google_mlkit_text_recognition: ^0.13.0
+  google_mlkit_barcode_scanning: ^0.12.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
