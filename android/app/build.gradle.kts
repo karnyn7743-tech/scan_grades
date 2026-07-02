@@ -1,52 +1,49 @@
 plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
+    id("com.android.application")
+    id("kotlin-android")
+    id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
-    // حل مشكلة الـ Manifest الجذري عبر تعريف اسم الحزمة هنا كـ namespace
-    namespace "com.baithi.stugrascan"
-    compileSdkVersion flutter.compileSdkVersion
+    // حل مشكلة الـ Manifest النهائي متوافق مع صيغة Kotlin DSL
+    namespace = "com.baithi.stugrascan"
+    compileSdk = flutter.compileSdkVersion
     
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = "1.8"
     }
 
     sourceSets {
-        main.java.srcDirs += 'src/main/kotlin'
+        getByName("main").java.srcDirs("src/main/kotlin")
     }
 
     defaultConfig {
-        applicationId "com.baithi.stugrascan"
-        // الحد الأدنى لدعم الأندرويد لكي تتوافق حزم ML Kit والأكواد بسلاسة
-        minSdkVersion 21 
-        targetSdkVersion flutter.targetSdkVersion
-        versionCode flutterVersionCode.toInteger()
-        versionName flutterVersionName
+        applicationId = "com.baithi.stugrascan"
+        // دعم ميزات الذكاء الاصطناعي بشكل مستقر
+        minSdk = 21 
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutterVersionCode.toInt()
+        versionName = flutterVersionName
     }
 
     buildTypes {
-        release {
-            // إعدادات التوقيع الافتراضية للنسخة النهائية
-            signingConfig signingConfigs.debug
-            
-            // تحسين الحجم وحماية التطبيق عند الرفع لـ Codemagic
-            minifyEnabled false
-            shrinkResources false
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("debug")
+            minifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
 
 flutter {
-    source '../..'
+    source = "../.."
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version")
 }
