@@ -1,4 +1,4 @@
-name: stugrascan
+name: correcting_papers_withcode
 description: "Educational grade automation system for school control panels."
 publish_to: 'none'
 version: 1.0.0+1
