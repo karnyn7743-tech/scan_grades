@@ -306,72 +306,109 @@ class _MainScreenState extends State<MainScreen> {
 
   // ===================== حفظ الدرجة في Excel =====================
   Future<void> _saveGradeToExcel() async {
-    if (_excelInstance == null || _selectedFilePath == null) {
-      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
+  if (_excelInstance == null || _selectedFilePath == null) {
+    _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
+    return;
+  }
+
+  setState(() { _isLoading = true; });
+
+  try {
+    var sheet = _excelInstance!.tables.values.first;
+    bool targetFound = false;
+    int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
+
+    for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
+      var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
+      var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+
+      if (cellA.toString().trim() == _secretIdResult.trim() || 
+          cellB.toString().trim() == _secretIdResult.trim()) {
+        targetFound = true;
+
+        var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
+          columnIndex: subjectColumnIndex, 
+          rowIndex: rowIndex
+        )).value;
+
+        if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
+          setState(() { _isLoading = false; });
+          _showDialogAlert(
+            title: "⚠️ تنبيه: رصد مسبق!",
+            message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
+            shouldCloseCamera: false,
+          );
+          return;
+        }
+
+        sheet.cell(px.CellIndex.indexByColumnRow(
+          columnIndex: subjectColumnIndex, 
+          rowIndex: rowIndex
+        )).value = px.TextCellValue(_gradeController.text);
+        break;
+      }
+    }
+
+    if (!targetFound) {
+      _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
+      setState(() { _isLoading = false; });
       return;
     }
 
-    setState(() { _isLoading = true; });
-
-    try {
-      var sheet = _excelInstance!.tables.values.first;
-      bool targetFound = false;
-      int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
-
-      for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
-        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
-
-        // التحقق من تطابق الرقم السري (في العمود A أو D)
-        if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
-          targetFound = true;
-
-          var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex)).value;
-          if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
-            setState(() { _isLoading = false; });
-            _showDialogAlert(
-              title: "⚠️ تنبيه: رصد مسبق!",
-              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
-              shouldCloseCamera: false,
-            );
-            return;
-          }
-
-          sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex)).value = px.TextCellValue(_gradeController.text);
-          break;
-        }
-      }
-
-      if (!targetFound) {
-        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
-        setState(() { _isLoading = false; });
-        return;
-      }
-
-      // حفظ الملف مباشرة في المسار المختار
-      final List<int>? fileBytes = _excelInstance!.encode();
-      if (fileBytes != null) {
-        final File targetFile = File(_selectedFilePath!);
-        if (await targetFile.exists()) {
-          await targetFile.delete();
-        }
-        await targetFile.writeAsBytes(fileBytes, flush: true);
-
-        setState(() {
-          _gradedStudents += 1;
-          _secretIdResult = "سيظهر هنا الرقم السري";
-          _gradeController.clear();
-          _isScanningActive = false;
-        });
-
-        _showSnackBar("💾 تم حفظ الدرجة في ملف الكنترول بنجاح!");
-      }
-    } catch (e) {
-      _showSnackBar("❌ فشل كتابة الملف: $e");
-    } finally {
+    // ========== الجزء المحسّن للحفظ ==========
+    final List<int>? fileBytes = _excelInstance!.encode();
+    if (fileBytes == null) {
+      _showSnackBar("❌ فشل في ترميز الملف");
       setState(() { _isLoading = false; });
+      return;
     }
+
+    final File originalFile = File(_selectedFilePath!);
+    
+    // 1. إنشاء ملف مؤقت في نفس المجلد
+    final String tempPath = '${originalFile.path}.tmp';
+    final File tempFile = File(tempPath);
+    
+    // 2. الكتابة إلى الملف المؤقت
+    await tempFile.writeAsBytes(fileBytes, flush: true);
+    
+    // 3. التحقق من أن الملف المؤقت موجود وله حجم > 0
+    if (!await tempFile.exists() || await tempFile.length() == 0) {
+      _showSnackBar("❌ فشل في إنشاء الملف المؤقت");
+      await tempFile.delete(recursive: true);
+      setState(() { _isLoading = false; });
+      return;
+    }
+
+    // 4. حذف الملف الأصلي (إذا كان موجوداً)
+    if (await originalFile.exists()) {
+      await originalFile.delete();
+    }
+
+    // 5. إعادة تسمية الملف المؤقت إلى الملف الأصلي
+    await tempFile.rename(originalFile.path);
+
+    // 6. التحقق النهائي من أن الملف الأصلي موجود وله حجم > 0
+    if (await originalFile.exists() && await originalFile.length() > 0) {
+      setState(() {
+        _gradedStudents += 1;
+        _secretIdResult = "سيظهر هنا الرقم السري";
+        _gradeController.clear();
+        _isScanningActive = false;
+      });
+
+      _showSnackBar("💾 تم حفظ الدرجة بنجاح في: ${originalFile.path}");
+    } else {
+      _showSnackBar("❌ فشل في حفظ الملف (الملف النهائي غير موجود)");
+    }
+
+  } catch (e) {
+    _showSnackBar("❌ خطأ في الحفظ: $e");
+    print('خطأ الحفظ: $e');
+  } finally {
+    setState(() { _isLoading = false; });
   }
+}
 
   // ===================== أدوات مساعدة =====================
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
