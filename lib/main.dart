@@ -364,48 +364,22 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // 3. تحديد المسار العام لمجلد Downloads
-    //    هذه هي الطريقة الصحيحة للوصول إلى مجلد التنزيلات على جميع أندرويد
-    String downloadsPath = '';
-    
-    try {
-      // محاولة الحصول على المسار العام لـ Downloads (يعمل على Android 10 وما دون)
-      final Directory? publicDownloads = await getExternalStoragePublicDirectory(
-        DownloadsDirectory(),
-      );
-      if (publicDownloads != null) {
-        downloadsPath = publicDownloads.path;
-      } else {
-        // خطة بديلة لـ Android 11+ باستخدام path_provider
-        final Directory? downloadsDir = await getDownloadsDirectory();
-        if (downloadsDir != null) {
-          downloadsPath = downloadsDir.path;
-        } else {
-          _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات");
-          setState(() { _isLoading = false; });
-          return;
-        }
-      }
-    } catch (e) {
-      // خطة بديلة في حال فشل الطريقة الأولى
-      final Directory? downloadsDir = await getDownloadsDirectory();
-      if (downloadsDir != null) {
-        downloadsPath = downloadsDir.path;
-      } else {
-        _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات: $e");
-        setState(() { _isLoading = false; });
-        return;
-      }
+    // 3. الحصول على مسار مجلد Downloads باستخدام getDownloadsDirectory()
+    final Directory? downloadsDir = await getDownloadsDirectory();
+    if (downloadsDir == null) {
+      _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات");
+      setState(() { _isLoading = false; });
+      return;
     }
 
     // إنشاء مجلد "درجات الطلاب"
-    final String gradesFolderPath = '$downloadsPath/درجات الطلاب';
+    final String gradesFolderPath = '${downloadsDir.path}/درجات الطلاب';
     final Directory gradesFolder = Directory(gradesFolderPath);
     if (!await gradesFolder.exists()) {
       await gradesFolder.create(recursive: true);
     }
 
-    // استخراج اسم الملف
+    // استخراج اسم الملف من المسار الأصلي
     final String fileName = File(_selectedFilePath!).path.split('/').last;
     final String finalPath = '$gradesFolderPath/$fileName';
 
@@ -438,7 +412,7 @@ class _MainScreenState extends State<MainScreen> {
     setState(() { _isLoading = false; });
   }
 }
-
+  
   // ===================== أدوات مساعدة =====================
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
