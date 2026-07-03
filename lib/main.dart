@@ -5,6 +5,7 @@ import 'package:excel/excel.dart' as px;
 import 'package:mobile_scanner/mobile_scanner.dart'; 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:camera/camera.dart'; // استيراد المكتبة لحل مشكلة XFile المفقودة
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -67,6 +68,7 @@ class _MainScreenState extends State<MainScreen> {
   final MobileScannerController _cameraController = MobileScannerController(
     autoStart: false, 
     torchEnabled: false,
+    returnImage: true, // فرض إعادة البايتات الصورية الكاملة بدقة عالية
   );
   bool _isScanningActive = false;
   bool _isTorchOn = false;
@@ -82,7 +84,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _requestStoragePermission() async {
     await Permission.storage.request();
-    await Permission.camera.request(); // التأكد من صلاحية الكاميرا أيضاً
+    await Permission.camera.request();
   }
 
   Future<void> _pickAndParseExcel() async {
@@ -141,14 +143,14 @@ class _MainScreenState extends State<MainScreen> {
     return output.replaceAll(RegExp(r'[^0-9]'), ''); 
   }
 
-  // دالة المسح المحسنة لالتقاط صورة فوتوغرافية ثابتة وعالية التركيز لمعالجة الـ OCR
+  // معالجة بايتات اللقطة المستقرة لحل مشكلة التعارض البرمجي القديم
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
     final List<Barcode> barcodes = capture.barcodes;
     
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       final String qrValue = barcodes.first.rawValue!;
       
-      // 1. إيقاف المسح الحي فوراً لمنع التكرار والتركيز على اللقطة الثابتة
+      // إيقاف الفحص الحي مؤقتاً لتثبيت القراءة
       await _cameraController.stop();
 
       setState(() {
@@ -156,14 +158,23 @@ class _MainScreenState extends State<MainScreen> {
         _gradeController.clear();
       });
 
-      // 2. التقاط صورة ثابتة عالية الجودة ومستقرة للـ OCR بدلاً من بايتات البث الحية
-      try {
-        final XFile? capturedFile = await _cameraController.takePicture();
-        
-        if (capturedFile != null) {
-          final InputImage inputImage = InputImage.fromFilePath(capturedFile.path);
+      // التحقق من وصول البايتات الصورية النقية من الكاميرا
+      if (capture.image != null) {
+        // إعطاء مهلة 200 ملي ثانية لتأكيد معالجة مصفوفة النصوص بوضوح
+        await Future.delayed(const Duration(milliseconds: 200));
+
+        final InputImage inputImage = InputImage.fromBytes(
+          bytes: capture.image!,
+          metadata: InputImageMetadata(
+            size: Size(capture.size.width, capture.size.height),
+            rotation: InputImageRotation.rotation0deg, 
+            format: InputImageFormat.nv21, 
+            bytesPerRow: capture.size.width.toInt(), 
+          ),
+        );
+
+        try {
           final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
-          
           List<Map<String, dynamic>> textElements = [];
 
           for (TextBlock block in recognizedText.blocks) {
@@ -178,18 +189,16 @@ class _MainScreenState extends State<MainScreen> {
             }
           }
 
-          // الترتيب الأفقي بناءً على المواقع الظاهرة في ملف الصورة المرفقة
           if (textElements.isNotEmpty) {
-            // الترتيب من اليمين إلى اليسار (تنازلياً حسب X)
+            // الترتيب الأفقي التنازلي (من اليمين لليسار)
             textElements.sort((a, b) => b['x'].compareTo(a['x']));
 
-            // كود المادة على اليمين (رقم 1 في الصورة)، والدرجة على اليسار (رقم 26 في الصورة)
             String detectedSubjectCode = textElements.first['text'];
             String detectedGrade = textElements.length > 1 ? textElements.last['text'] : "";
 
             int currentSubjectOrder = _subjects.indexOf(_selectedSubject!) + 1;
 
-            // مطابقة كود المادة
+            // تنبيه مطابقة المادة المدخلة مع القائمة المحددة
             if (detectedSubjectCode != currentSubjectOrder.toString()) {
               _showDialogAlert(
                 title: "⚠️ تنبيه مطابقة المادة",
@@ -199,7 +208,6 @@ class _MainScreenState extends State<MainScreen> {
               return; 
             }
 
-            // إدخال الدرجة المقروءة في الحقل بنجاح
             setState(() {
               if (detectedGrade.isNotEmpty) {
                 _gradeController.text = detectedGrade;
@@ -211,9 +219,9 @@ class _MainScreenState extends State<MainScreen> {
           } else {
             _showSnackBar("ℹ️ لم يتم رصد أرقام واضحة حول الـ QR. يرجى إدخال البيانات يدوياً.");
           }
+        } catch (e) {
+          _showSnackBar("تنبيه الـ OCR: لم تتم قراءة النصوص، يرجى الإدخال اليدوي.");
         }
-      } catch (e) {
-        _showSnackBar("تنبيه الـ OCR: لم تتم قراءة النصوص الثابتة، يرجى الإدخال اليدوي.");
       }
     }
   }
@@ -260,7 +268,6 @@ class _MainScreenState extends State<MainScreen> {
         return;
       }
 
-      // حفظ الملف وإعادة كتابته بشكل نهائي وقسري لحل مشكلة عدم الحفظ
       final bytes = _excelInstance!.encode();
       if (bytes != null) {
         final file = File(_selectedFilePath!);
