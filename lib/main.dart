@@ -356,19 +356,22 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // 2. ترميز الملف
-    final List<int>? fileBytes = _excelInstance!.encode();
-    if (fileBytes == null) {
+    // 2. ترميز الملف وتحويل النوع إلى Uint8List
+    final List<int>? fileBytesList = _excelInstance!.encode();
+    if (fileBytesList == null) {
       _showSnackBar("❌ فشل في ترميز الملف");
       setState(() { _isLoading = false; });
       return;
     }
 
+    // تحويل List<int> إلى Uint8List
+    final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
+
     // 3. طلب حفظ الملف من المستخدم باستخدام FilePicker
     final String? outputPath = await FilePicker.platform.saveFile(
       dialogTitle: 'اختر مكان حفظ ملف الدرجات',
       fileName: File(_selectedFilePath!).path.split('/').last,
-      bytes: fileBytes,
+      bytes: fileBytes, // الآن النوع صحيح Uint8List
     );
 
     if (outputPath == null) {
