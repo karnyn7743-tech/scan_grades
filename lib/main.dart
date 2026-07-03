@@ -306,7 +306,7 @@ class _MainScreenState extends State<MainScreen> {
 
   // ===================== حفظ الدرجة في Excel =====================
   Future<void> _saveGradeToExcel() async {
-   if (_excelInstance == null || _selectedFilePath == null) {
+  if (_excelInstance == null || _selectedFilePath == null) {
     _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
     return;
   }
@@ -356,7 +356,7 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // 2. ترميز الملف إلى بايتات
+    // 2. ترميز الملف
     final List<int>? fileBytes = _excelInstance!.encode();
     if (fileBytes == null) {
       _showSnackBar("❌ فشل في ترميز الملف");
@@ -364,46 +364,66 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // 3. تحديد المسار النهائي للحفظ
-    //    نستخدم path_provider للحصول على مجلد التنزيلات بصورة موثوقة
-    final Directory? downloadsDir = await getDownloadsDirectory();
-    if (downloadsDir == null) {
-      _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات");
-      setState(() { _isLoading = false; });
-      return;
+    // 3. تحديد المسار العام لمجلد Downloads
+    //    هذه هي الطريقة الصحيحة للوصول إلى مجلد التنزيلات على جميع أندرويد
+    String downloadsPath = '';
+    
+    try {
+      // محاولة الحصول على المسار العام لـ Downloads (يعمل على Android 10 وما دون)
+      final Directory? publicDownloads = await getExternalStoragePublicDirectory(
+        DownloadsDirectory(),
+      );
+      if (publicDownloads != null) {
+        downloadsPath = publicDownloads.path;
+      } else {
+        // خطة بديلة لـ Android 11+ باستخدام path_provider
+        final Directory? downloadsDir = await getDownloadsDirectory();
+        if (downloadsDir != null) {
+          downloadsPath = downloadsDir.path;
+        } else {
+          _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات");
+          setState(() { _isLoading = false; });
+          return;
+        }
+      }
+    } catch (e) {
+      // خطة بديلة في حال فشل الطريقة الأولى
+      final Directory? downloadsDir = await getDownloadsDirectory();
+      if (downloadsDir != null) {
+        downloadsPath = downloadsDir.path;
+      } else {
+        _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات: $e");
+        setState(() { _isLoading = false; });
+        return;
+      }
     }
 
-    // إنشاء مجلد "درجات الطلاب" إذا لم يكن موجوداً
-    final String gradesFolderPath = '${downloadsDir.path}/درجات الطلاب';
+    // إنشاء مجلد "درجات الطلاب"
+    final String gradesFolderPath = '$downloadsPath/درجات الطلاب';
     final Directory gradesFolder = Directory(gradesFolderPath);
     if (!await gradesFolder.exists()) {
       await gradesFolder.create(recursive: true);
     }
 
-    // استخراج اسم الملف من المسار الأصلي
+    // استخراج اسم الملف
     final String fileName = File(_selectedFilePath!).path.split('/').last;
     final String finalPath = '$gradesFolderPath/$fileName';
 
-    // 4. الكتابة مباشرة إلى الملف النهائي (بدون تعقيدات إعادة التسمية)
+    // 4. الكتابة إلى الملف النهائي مباشرة
     final File finalFile = File(finalPath);
-    
-    // إذا كان الملف موجوداً، احذفه أولاً (لتجنب أي قفل)
     if (await finalFile.exists()) {
       await finalFile.delete();
     }
-
-    // اكتب البايتات مباشرة
     await finalFile.writeAsBytes(fileBytes, flush: true);
 
-    // 5. التحقق من نجاح العملية
+    // 5. التحقق من النجاح
     if (await finalFile.exists() && await finalFile.length() > 0) {
       setState(() {
         _gradedStudents += 1;
         _secretIdResult = "سيظهر هنا الرقم السري";
         _gradeController.clear();
         _isScanningActive = false;
-        // تحديث المسار المختار ليصبح المسار الجديد (للمرات القادمة)
-        _selectedFilePath = finalPath;
+        _selectedFilePath = finalPath; // تحديث المسار
       });
 
       _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
