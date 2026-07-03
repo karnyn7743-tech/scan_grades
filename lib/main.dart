@@ -364,45 +364,33 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // 3. الحصول على مسار مجلد Downloads باستخدام getDownloadsDirectory()
-    final Directory? downloadsDir = await getDownloadsDirectory();
-    if (downloadsDir == null) {
-      _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات");
+    // 3. طلب حفظ الملف من المستخدم باستخدام FilePicker
+    final String? outputPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'اختر مكان حفظ ملف الدرجات',
+      fileName: File(_selectedFilePath!).path.split('/').last,
+      bytes: fileBytes,
+    );
+
+    if (outputPath == null) {
+      _showSnackBar("❌ تم إلغاء الحفظ من قبل المستخدم");
       setState(() { _isLoading = false; });
       return;
     }
 
-    // إنشاء مجلد "درجات الطلاب"
-    final String gradesFolderPath = '${downloadsDir.path}/درجات الطلاب';
-    final Directory gradesFolder = Directory(gradesFolderPath);
-    if (!await gradesFolder.exists()) {
-      await gradesFolder.create(recursive: true);
-    }
-
-    // استخراج اسم الملف من المسار الأصلي
-    final String fileName = File(_selectedFilePath!).path.split('/').last;
-    final String finalPath = '$gradesFolderPath/$fileName';
-
-    // 4. الكتابة إلى الملف النهائي مباشرة
-    final File finalFile = File(finalPath);
-    if (await finalFile.exists()) {
-      await finalFile.delete();
-    }
-    await finalFile.writeAsBytes(fileBytes, flush: true);
-
-    // 5. التحقق من النجاح
-    if (await finalFile.exists() && await finalFile.length() > 0) {
+    // 4. التحقق من نجاح الحفظ
+    final File savedFile = File(outputPath);
+    if (await savedFile.exists() && await savedFile.length() > 0) {
       setState(() {
         _gradedStudents += 1;
         _secretIdResult = "سيظهر هنا الرقم السري";
         _gradeController.clear();
         _isScanningActive = false;
-        _selectedFilePath = finalPath; // تحديث المسار
+        _selectedFilePath = outputPath; // تحديث المسار
       });
 
-      _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
+      _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $outputPath");
     } else {
-      _showSnackBar("❌ فشل في حفظ الملف (الملف النهائي غير موجود)");
+      _showSnackBar("❌ فشل في حفظ الملف");
     }
 
   } catch (e) {
@@ -412,7 +400,7 @@ class _MainScreenState extends State<MainScreen> {
     setState(() { _isLoading = false; });
   }
 }
-  
+        
   // ===================== أدوات مساعدة =====================
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
