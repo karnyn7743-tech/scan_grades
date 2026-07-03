@@ -4,7 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
 import 'package:mobile_scanner/mobile_scanner.dart'; 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:permission_handler/permission_handler.dart'; // حزمة الأذونات الجديدة
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,9 +30,7 @@ class _StugraScanAppState extends State<StugraScanApp> {
       home: MainScreen(
         isDarkMode: _isDarkMode,
         onThemeChanged: (bool newTheme) {
-          setState(() {
-            _isDarkMode = newTheme;
-          });
+          setState(() { _isDarkMode = newTheme; });
         },
       ),
     );
@@ -69,7 +67,6 @@ class _MainScreenState extends State<MainScreen> {
   final MobileScannerController _cameraController = MobileScannerController(
     autoStart: false, 
     torchEnabled: false,
-    returnImage: true, // تفعيل إعادة الصورة بجودة أعلى للمعالجة
   );
   bool _isScanningActive = false;
   bool _isTorchOn = false;
@@ -80,25 +77,17 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _requestStoragePermission(); // طلب إذن الوصول للملفات فور فتح التطبيق
+    _requestStoragePermission();
   }
 
-  // دالة طلب إذن التخزين برمجياً (حل مشكلة عدم الحفظ)
   Future<void> _requestStoragePermission() async {
-    if (await Permission.storage.request().isGranted) {
-      // تم منح الإذن بنجاح
-    } else {
-      _showSnackBar("⚠️ يتطلب التطبيق إذن التخزين لحفظ الدرجات في ملف الإكسيل!");
-    }
+    await Permission.storage.request();
+    await Permission.camera.request(); // التأكد من صلاحية الكاميرا أيضاً
   }
 
   Future<void> _pickAndParseExcel() async {
-    // التأكد من وجود الإذن قبل فتح الملفات
     await _requestStoragePermission();
-
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() { _isLoading = true; });
 
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -132,112 +121,114 @@ class _MainScreenState extends State<MainScreen> {
             _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0; 
             _gradedStudents = 0; 
           });
-
-          if (_subjects.isEmpty) {
-            _showSnackBar("تنبيه: لم يتم العثور على مواد في الأعمدة من E إلى S في الصف الأول.");
-          }
         }
       }
     } catch (e) {
-      setState(() {
-        _fileName = "فشل في قراءة ملف الأكسيل";
-      });
+      setState(() { _fileName = "فشل في قراءة ملف الأكسيل"; });
       _showSnackBar("حدث خطأ أثناء المعالجة: $e");
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() { _isLoading = false; });
     }
   }
 
-  // دالة معالجة الصورة المحدثة (حل مشكلة الـ OCR وكود المادة)
+  String _convertArabicHindiDigits(String input) {
+    var arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    var englishNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    String output = input;
+    for (int i = 0; i < arabicNumbers.length; i++) {
+      output = output.replaceAll(arabicNumbers[i], englishNumbers[i]);
+    }
+    return output.replaceAll(RegExp(r'[^0-9]'), ''); 
+  }
+
+  // دالة المسح المحسنة لالتقاط صورة فوتوغرافية ثابتة وعالية التركيز لمعالجة الـ OCR
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
     final List<Barcode> barcodes = capture.barcodes;
     
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       final String qrValue = barcodes.first.rawValue!;
       
-      // إيقاف الكاميرا فوراً للتركيز على المعالجة والمراجعة اليدوية
+      // 1. إيقاف المسح الحي فوراً لمنع التكرار والتركيز على اللقطة الثابتة
       await _cameraController.stop();
 
       setState(() {
         _secretIdResult = qrValue;
+        _gradeController.clear();
       });
 
-      // التحقق من جودة بايتات الصورة القادمة من الفحص
-      if (capture.image != null) {
-        final InputImage inputImage = InputImage.fromBytes(
-          bytes: capture.image!,
-          metadata: InputImageMetadata(
-            size: Size(capture.size.width, capture.size.height),
-            rotation: InputImageRotation.rotation0deg, 
-            format: InputImageFormat.nv21, 
-            bytesPerRow: capture.size.width.toInt(), 
-          ),
-        );
-
-        try {
+      // 2. التقاط صورة ثابتة عالية الجودة ومستقرة للـ OCR بدلاً من بايتات البث الحية
+      try {
+        final XFile? capturedFile = await _cameraController.takePicture();
+        
+        if (capturedFile != null) {
+          final InputImage inputImage = InputImage.fromFilePath(capturedFile.path);
           final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
-          List<String> detectedNumbers = [];
+          
+          List<Map<String, dynamic>> textElements = [];
 
-          // استخراج كافة السطور التي تحتوي على أرقام بدون تعقيد الفلترة الأفقية حالياً لضمان العثور على أي رقم
           for (TextBlock block in recognizedText.blocks) {
             for (TextLine line in block.lines) {
-              String cleanText = _extractDigits(line.text.trim());
-              if (cleanText.isNotEmpty) {
-                detectedNumbers.add(cleanText);
+              String convertedText = _convertArabicHindiDigits(line.text.trim());
+              if (convertedText.isNotEmpty) {
+                textElements.add({
+                  'text': convertedText,
+                  'x': line.boundingBox.left, 
+                });
               }
             }
           }
 
-          // إذا نجح الـ OCR في التقاط أي أرقام من الورقة
-          if (detectedNumbers.isNotEmpty) {
-            setState(() {
-              // لإعطائك النتيجة فوراً: نضع آخر رقم مكتشف كدرجة متوقعة (غالباً تكون الدرجة بالأسفل أو اليسار)
-              _gradeController.text = detectedNumbers.last;
-            });
-            
-            _showSnackBar("🔍 تم التقاط أرقام من الورقة: ${detectedNumbers.join(' - ')}");
-          } else {
-            _showSnackBar("ℹ️ تم قراءة الـ QR بنجاح، لكن خط اليد غير واضح للـ OCR. يرجى كتابة الدرجة.");
-          }
+          // الترتيب الأفقي بناءً على المواقع الظاهرة في ملف الصورة المرفقة
+          if (textElements.isNotEmpty) {
+            // الترتيب من اليمين إلى اليسار (تنازلياً حسب X)
+            textElements.sort((a, b) => b['x'].compareTo(a['x']));
 
-        } catch (e) {
-          _showSnackBar("تنبيه الـ OCR: يرجى كتابة الدرجة يدوياً.");
+            // كود المادة على اليمين (رقم 1 في الصورة)، والدرجة على اليسار (رقم 26 في الصورة)
+            String detectedSubjectCode = textElements.first['text'];
+            String detectedGrade = textElements.length > 1 ? textElements.last['text'] : "";
+
+            int currentSubjectOrder = _subjects.indexOf(_selectedSubject!) + 1;
+
+            // مطابقة كود المادة
+            if (detectedSubjectCode != currentSubjectOrder.toString()) {
+              _showDialogAlert(
+                title: "⚠️ تنبيه مطابقة المادة",
+                message: "كود المادة المقروء من الورقة ($detectedSubjectCode) لا يطابق المادة المختارة من القائمة (${_selectedSubject} - رقم $currentSubjectOrder).\n\nسيتم إغلاق الكاميرا لحماية البيانات.",
+                shouldCloseCamera: true
+              );
+              return; 
+            }
+
+            // إدخال الدرجة المقروءة في الحقل بنجاح
+            setState(() {
+              if (detectedGrade.isNotEmpty) {
+                _gradeController.text = detectedGrade;
+                _showSnackBar("✅ تم مطابقة المادة وقراءة الدرجة ($detectedGrade) بنجاح.");
+              } else {
+                _showSnackBar("ℹ️ تم مطابقة المادة، يرجى كتابة الدرجة يدوياً.");
+              }
+            });
+          } else {
+            _showSnackBar("ℹ️ لم يتم رصد أرقام واضحة حول الـ QR. يرجى إدخال البيانات يدوياً.");
+          }
         }
+      } catch (e) {
+        _showSnackBar("تنبيه الـ OCR: لم تتم قراءة النصوص الثابتة، يرجى الإدخال اليدوي.");
       }
     }
   }
 
-  // دالة الحفظ المحدثة والمؤمنة برمجياً
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل!");
       return;
     }
-    if (_secretIdResult == "سيظهر هنا الرقم السري" || _secretIdResult.isEmpty) {
-      _showSnackBar("⚠️ خطأ: لا يوجد رقم سري لحفظه!");
-      return;
-    }
-    if (_gradeController.text.isEmpty) {
-      _showSnackBar("⚠️ يرجى إدخال أو مراجعة الدرجة أولاً!");
-      return;
-    }
 
-    // إعادة طلب التأكيد البرمجي للتخزين لحل المشكلة نهائياً على أندرويد 10
-    if (!await Permission.storage.isGranted) {
-      await _requestStoragePermission();
-      if (!await Permission.storage.isGranted) return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() { _isLoading = true; });
 
     try {
       var sheet = _excelInstance!.tables.values.first;
       bool targetFound = false;
-
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
@@ -245,19 +236,31 @@ class _MainScreenState extends State<MainScreen> {
         var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
         if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
-          var targetCell = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex));
-          targetCell.value = px.TextCellValue(_gradeController.text);
           targetFound = true;
+
+          var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex)).value;
+          if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
+            setState(() { _isLoading = false; });
+            _showDialogAlert(
+              title: "⚠️ تنبيه: رصد مسبق!",
+              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في مادة $_selectedSubject وهي (${existingValue.toString()}).",
+              shouldCloseCamera: false
+            );
+            return; 
+          }
+
+          sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex)).value = px.TextCellValue(_gradeController.text);
           break;
         }
       }
 
       if (!targetFound) {
-        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) داخل ملف الإكسيل!");
+        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
         setState(() { _isLoading = false; });
         return;
       }
 
+      // حفظ الملف وإعادة كتابته بشكل نهائي وقسري لحل مشكلة عدم الحفظ
       final bytes = _excelInstance!.encode();
       if (bytes != null) {
         final file = File(_selectedFilePath!);
@@ -269,27 +272,44 @@ class _MainScreenState extends State<MainScreen> {
           _gradeController.clear();
         });
 
-        _showSnackBar("💾 تم حفظ الدرجة بنجاح في الملف الأصلي!");
+        _showSnackBar("💾 تم حفظ وتأكيد الدرجة في ملف الكنترول بنجاح!");
 
-        // إعادة تفعيل الكاميرا تلقائياً للورقة التالية
         if (_isScanningActive) {
           await _cameraController.start();
-          if (_isTorchOn) {
-            await _cameraController.toggleTorch();
-          }
+          if (_isTorchOn) await _cameraController.toggleTorch();
         }
       }
     } catch (e) {
-      _showSnackBar("❌ فشل أثناء حفظ وتعديل الملف: $e");
+      _showSnackBar("❌ فشل كتابة وتعديل الملف: $e");
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() { _isLoading = false; });
     }
   }
 
-  String _extractDigits(String input) {
-    return input.replaceAll(RegExp(r'[^0-9]'), '');
+  void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(title, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          content: Text(message),
+          actions: [
+            TextButton(
+              child: const Text("حسناً"),
+              onPressed: () {
+                Navigator.of(context).pop();
+                if (shouldCloseCamera) {
+                  setState(() { _isScanningActive = false; });
+                } else {
+                  if (_isScanningActive) _cameraController.start();
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _toggleScanning() async {
@@ -298,15 +318,11 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    setState(() {
-      _isScanningActive = !_isScanningActive;
-    });
+    setState(() { _isScanningActive = !_isScanningActive; });
 
     if (_isScanningActive) {
       await _cameraController.start();
-      if (_isTorchOn) {
-        await _cameraController.toggleTorch();
-      }
+      if (_isTorchOn) await _cameraController.toggleTorch();
     } else {
       await _cameraController.stop();
     }
@@ -342,24 +358,14 @@ class _MainScreenState extends State<MainScreen> {
         actions: [
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
-            tooltip: 'تحضير الفلاش للمسح الضوئي',
             onPressed: () async {
-              setState(() {
-                _isTorchOn = !_isTorchOn;
-              });
-              if (_isScanningActive) {
-                await _cameraController.toggleTorch();
-              } else {
-                _showSnackBar(_isTorchOn ? "💡 تم تحضير الفلاش (سيعمل تلقائياً عند فتح الكاميرا)" : "🔕 تم إيقاف الفلاش التلقائي");
-              }
+              setState(() { _isTorchOn = !_isTorchOn; });
+              if (_isScanningActive) await _cameraController.toggleTorch();
             }, 
           ),
           IconButton(
             icon: Icon(widget.isDarkMode ? Icons.light_mode : Icons.dark_mode),
-            tooltip: widget.isDarkMode ? 'الوضع النهاري' : 'الوضع الليلي',
-            onPressed: () {
-              widget.onThemeChanged(!widget.isDarkMode);
-            },
+            onPressed: () => widget.onThemeChanged(!widget.isDarkMode),
           ),
         ],
       ),
@@ -368,107 +374,46 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           children: [
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                minimumSize: const Size.fromHeight(50),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size.fromHeight(50)),
               onPressed: _isLoading ? null : _pickAndParseExcel, 
               child: _isLoading 
                 ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text(
-                    "اختر ملف الأكسيل الأصلي",
-                    style: TextStyle(fontSize: 18, color: Colors.white),
-                  ),
+                : const Text("اختر ملف الأكسيل الأصلي", style: TextStyle(fontSize: 18, color: Colors.white)),
             ),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: fieldColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.withOpacity(0.3)),
-              ),
-              child: Text(
-                _fileName,
-                style: TextStyle(color: textColor),
-                textAlign: TextAlign.center,
-              ),
+              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withOpacity(0.3))),
+              child: Text(_fileName, style: TextStyle(color: textColor), textAlign: TextAlign.center),
             ),
             const SizedBox(height: 12),
 
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                "اختر المادة :",
-                style: TextStyle(
-                  color: textColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+            Align(alignment: Alignment.centerRight, child: Text("اختر المادة :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold))),
             const SizedBox(height: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: fieldColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.withOpacity(0.3)),
-              ),
+              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withOpacity(0.3))),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
                   dropdownColor: fieldColor,
                   isExpanded: true,
-                  hint: const Text(
-                    "انقر لتحديد المادة المفتوحة ورصدها",
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                  hint: const Text("انقر لتحديد المادة المفتوحة ورصدها", style: TextStyle(color: Colors.grey)),
                   value: _selectedSubject,
-                  items: _subjects.isEmpty ? null : _subjects
-                      .map(
-                        (sub) => DropdownMenuItem(
-                          value: sub,
-                          child: Text(
-                            sub,
-                            style: TextStyle(color: textColor),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    setState(() {
-                      _selectedSubject = val;
-                    });
-                  },
+                  items: _subjects.isEmpty ? null : _subjects.map((sub) => DropdownMenuItem(value: sub, child: Text(sub, style: TextStyle(color: textColor)))).toList(),
+                  onChanged: (val) { setState(() { _selectedSubject = val; }); },
                 ),
               ),
             ),
             const SizedBox(height: 12),
 
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                "الرقم السري :",
-                style: TextStyle(
-                  color: textColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+            Align(alignment: Alignment.centerRight, child: Text("الرقم السري :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold))),
             const SizedBox(height: 4),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: fieldColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.withOpacity(0.3)),
-              ),
-              child: Text(
-                _secretIdResult,
-                style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
+              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withOpacity(0.3))),
+              child: Text(_secretIdResult, style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
             ),
             const SizedBox(height: 12),
 
@@ -478,13 +423,7 @@ class _MainScreenState extends State<MainScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
-                        "الدرجة (يمكنك تعديلها) :",
-                        style: TextStyle(
-                          color: textColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      Text("الدرجة (يمكنك تعديلها) :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
                       TextField(
                         controller: _gradeController,
@@ -494,13 +433,8 @@ class _MainScreenState extends State<MainScreen> {
                         decoration: InputDecoration(
                           fillColor: fieldColor,
                           filled: true,
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                          enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)), borderRadius: BorderRadius.circular(8)),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
                     ],
@@ -511,31 +445,13 @@ class _MainScreenState extends State<MainScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
-                        "العداد :",
-                        style: TextStyle(
-                          color: textColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      Text("العداد :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: fieldColor,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade500),
-                        ),
-                        child: Text(
-                          "$_gradedStudents / $_totalStudents",
-                          style: const TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
+                        decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade500)),
+                        child: Text("$_gradedStudents / $_totalStudents", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16), textAlign: TextAlign.center),
                       ),
                     ],
                   ),
@@ -545,41 +461,25 @@ class _MainScreenState extends State<MainScreen> {
             const SizedBox(height: 20),
 
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isScanningActive ? Colors.red : Colors.green,
-                minimumSize: const Size.fromHeight(50),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: _isScanningActive ? Colors.red : Colors.green, minimumSize: const Size.fromHeight(50)),
               onPressed: _toggleScanning, 
-              child: Text(
-                _isScanningActive ? "إيقاف المسح مؤقتاً" : "ابدأ المسح بالكاميرا",
-                style: const TextStyle(fontSize: 18, color: Colors.white),
-              ),
+              child: Text(_isScanningActive ? "إيقاف المسح مؤقتاً" : "ابدأ المسح بالكاميرا", style: const TextStyle(fontSize: 18, color: Colors.white)),
             ),
             const SizedBox(height: 8),
             
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
-                minimumSize: const Size.fromHeight(50),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, minimumSize: const Size.fromHeight(50)),
               onPressed: isSaveButtonEnabled ? _saveGradeToExcel : null, 
               child: _isLoading 
                 ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
-                : const Text(
-                    "تأكيد وحفظ الدرجة في الملف الأصلي",
-                    style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
+                : const Text("تأكيد وحفظ الدرجة في الملف الأصلي", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 20),
 
             Container(
               width: double.infinity,
               height: 250,
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _isScanningActive ? Colors.greenAccent : Colors.grey, width: 2),
-              ),
+              decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12), border: Border.all(color: _isScanningActive ? Colors.greenAccent : Colors.grey, width: 2)),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: _isScanningActive
@@ -589,13 +489,7 @@ class _MainScreenState extends State<MainScreen> {
                           _processCapturedImage(capture);
                         },
                       )
-                    : const Center(
-                        child: Text(
-                          "انقر فوق 'ابدأ المسح بالكاميرا' لتشغيل الفحص الحي",
-                          style: TextStyle(color: Colors.white70),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
+                    : const Center(child: Text("انقر فوق 'ابدأ المسح بالكاميرا' لتشغيل الفحص الحي", style: TextStyle(color: Colors.white70), textAlign: TextAlign.center)),
               ),
             ),
           ],
