@@ -10,9 +10,20 @@ import 'package:image/image.dart' as img;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const scan_grades_qrcodeApp());
+  runApp(const StugraScanApp());
 }
 
+// ===================== هيكل المناطق المقصوصة =====================
+// تم نقله إلى الخارج (خارج الـ Class)
+class ImageRegions {
+  final Uint8List? leftRegion;
+  final Uint8List? centerRegion;
+  final Uint8List? rightRegion;
+
+  ImageRegions({this.leftRegion, this.centerRegion, this.rightRegion});
+}
+
+// ===================== التطبيق الرئيسي =====================
 class StugraScanApp extends StatefulWidget {
   const StugraScanApp({super.key});
 
@@ -39,6 +50,7 @@ class _StugraScanAppState extends State<StugraScanApp> {
   }
 }
 
+// ===================== الشاشة الرئيسية =====================
 class MainScreen extends StatefulWidget {
   final bool isDarkMode;
   final ValueChanged<bool> onThemeChanged;
@@ -169,15 +181,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   // ===================== قص الصورة إلى مناطق =====================
-  class _ImageRegions {
-    final Uint8List? leftRegion;
-    final Uint8List? centerRegion;
-    final Uint8List? rightRegion;
-
-    _ImageRegions({this.leftRegion, this.centerRegion, this.rightRegion});
-  }
-
-  Future<_ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
+  Future<ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
     try {
       final img.Image? fullImage = img.decodeImage(imageBytes);
       if (fullImage == null) return null;
@@ -191,7 +195,7 @@ class _MainScreenState extends State<MainScreen> {
       final centerRegionImg = img.copyCrop(fullImage, x: regionWidth, y: 0, width: regionWidth, height: height);
       final rightRegionImg = img.copyCrop(fullImage, x: regionWidth * 2, y: 0, width: regionWidth, height: height);
 
-      return _ImageRegions(
+      return ImageRegions(
         leftRegion: Uint8List.fromList(img.encodePng(leftRegionImg)),
         centerRegion: Uint8List.fromList(img.encodePng(centerRegionImg)),
         rightRegion: Uint8List.fromList(img.encodePng(rightRegionImg)),
@@ -202,20 +206,21 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // ===================== التعرف على النص =====================
+  // ===================== التعرف على النص (محسّن) =====================
   Future<String> _recognizeTextFromBytes(Uint8List bytes) async {
     try {
-      final inputImage = InputImage.fromBytes(
-        bytes: bytes,
-        metadata: InputImageMetadata(
-          size: const Size(300, 300),
-          rotation: InputImageRotation.rotation0deg,
-          format: InputImageFormat.png,
-          bytesPerRow: 0,
-        ),
-      );
+      // حفظ الصورة مؤقتاً
+      final tempDir = await Directory.systemTemp.createTemp('ocr_');
+      final tempFile = File('${tempDir.path}/image.png');
+      await tempFile.writeAsBytes(bytes);
 
+      final inputImage = InputImage.fromFile(tempFile);
       final RecognizedText recognized = await _textRecognizer.processImage(inputImage);
+
+      // حذف الملف المؤقت
+      await tempFile.delete();
+      await tempDir.delete();
+
       return recognized.text.trim();
     } catch (e) {
       print('خطأ في OCR: $e');
@@ -268,7 +273,6 @@ class _MainScreenState extends State<MainScreen> {
     // 3. التحقق من مطابقة رقم المادة
     if (_selectedSubject == null) {
       _showSnackBar("⚠️ يرجى اختيار المادة أولاً");
-      // إعادة تشغيل الكاميرا
       if (_isScanningActive) await _cameraController.start();
       return;
     }
@@ -315,8 +319,10 @@ class _MainScreenState extends State<MainScreen> {
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
+        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
+        // التحقق من تطابق الرقم السري (في العمود A أو D)
         if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
           targetFound = true;
 
