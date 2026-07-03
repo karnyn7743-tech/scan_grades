@@ -1,13 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CAMERA" />   
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
  
     <application
         android:label="correcting_papers_withcode"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
-        android:label="StugraScan"
-        android:requestLegacyExternalStorage="true"> <!-- اضف هذا السطر هنا -->
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true"> <!-- تم دمج السطر هنا بشكل صحيح تماماً -->
 
         <activity
             android:name=".MainActivity"
