@@ -7,7 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
-
+import 'package:path_provider/path_provider.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const StugraScanApp());
@@ -306,7 +306,7 @@ class _MainScreenState extends State<MainScreen> {
 
   // ===================== حفظ الدرجة في Excel =====================
   Future<void> _saveGradeToExcel() async {
-  if (_excelInstance == null || _selectedFilePath == null) {
+   if (_excelInstance == null || _selectedFilePath == null) {
     _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
     return;
   }
@@ -318,16 +318,17 @@ class _MainScreenState extends State<MainScreen> {
     bool targetFound = false;
     int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
+    // 1. البحث عن الطالب
     for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
       var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
       var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
-      if (cellA.toString().trim() == _secretIdResult.trim() || 
+      if (cellA.toString().trim() == _secretIdResult.trim() ||
           cellB.toString().trim() == _secretIdResult.trim()) {
         targetFound = true;
 
         var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
-          columnIndex: subjectColumnIndex, 
+          columnIndex: subjectColumnIndex,
           rowIndex: rowIndex
         )).value;
 
@@ -342,7 +343,7 @@ class _MainScreenState extends State<MainScreen> {
         }
 
         sheet.cell(px.CellIndex.indexByColumnRow(
-          columnIndex: subjectColumnIndex, 
+          columnIndex: subjectColumnIndex,
           rowIndex: rowIndex
         )).value = px.TextCellValue(_gradeController.text);
         break;
@@ -355,7 +356,7 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // ========== الجزء المحسّن للحفظ ==========
+    // 2. ترميز الملف إلى بايتات
     final List<int>? fileBytes = _excelInstance!.encode();
     if (fileBytes == null) {
       _showSnackBar("❌ فشل في ترميز الملف");
@@ -363,41 +364,49 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    final File originalFile = File(_selectedFilePath!);
-    
-    // 1. إنشاء ملف مؤقت في نفس المجلد
-    final String tempPath = '${originalFile.path}.tmp';
-    final File tempFile = File(tempPath);
-    
-    // 2. الكتابة إلى الملف المؤقت
-    await tempFile.writeAsBytes(fileBytes, flush: true);
-    
-    // 3. التحقق من أن الملف المؤقت موجود وله حجم > 0
-    if (!await tempFile.exists() || await tempFile.length() == 0) {
-      _showSnackBar("❌ فشل في إنشاء الملف المؤقت");
-      await tempFile.delete(recursive: true);
+    // 3. تحديد المسار النهائي للحفظ
+    //    نستخدم path_provider للحصول على مجلد التنزيلات بصورة موثوقة
+    final Directory? downloadsDir = await getDownloadsDirectory();
+    if (downloadsDir == null) {
+      _showSnackBar("❌ لا يمكن الوصول إلى مجلد التنزيلات");
       setState(() { _isLoading = false; });
       return;
     }
 
-    // 4. حذف الملف الأصلي (إذا كان موجوداً)
-    if (await originalFile.exists()) {
-      await originalFile.delete();
+    // إنشاء مجلد "درجات الطلاب" إذا لم يكن موجوداً
+    final String gradesFolderPath = '${downloadsDir.path}/درجات الطلاب';
+    final Directory gradesFolder = Directory(gradesFolderPath);
+    if (!await gradesFolder.exists()) {
+      await gradesFolder.create(recursive: true);
     }
 
-    // 5. إعادة تسمية الملف المؤقت إلى الملف الأصلي
-    await tempFile.rename(originalFile.path);
+    // استخراج اسم الملف من المسار الأصلي
+    final String fileName = File(_selectedFilePath!).path.split('/').last;
+    final String finalPath = '$gradesFolderPath/$fileName';
 
-    // 6. التحقق النهائي من أن الملف الأصلي موجود وله حجم > 0
-    if (await originalFile.exists() && await originalFile.length() > 0) {
+    // 4. الكتابة مباشرة إلى الملف النهائي (بدون تعقيدات إعادة التسمية)
+    final File finalFile = File(finalPath);
+    
+    // إذا كان الملف موجوداً، احذفه أولاً (لتجنب أي قفل)
+    if (await finalFile.exists()) {
+      await finalFile.delete();
+    }
+
+    // اكتب البايتات مباشرة
+    await finalFile.writeAsBytes(fileBytes, flush: true);
+
+    // 5. التحقق من نجاح العملية
+    if (await finalFile.exists() && await finalFile.length() > 0) {
       setState(() {
         _gradedStudents += 1;
         _secretIdResult = "سيظهر هنا الرقم السري";
         _gradeController.clear();
         _isScanningActive = false;
+        // تحديث المسار المختار ليصبح المسار الجديد (للمرات القادمة)
+        _selectedFilePath = finalPath;
       });
 
-      _showSnackBar("💾 تم حفظ الدرجة بنجاح في: ${originalFile.path}");
+      _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
     } else {
       _showSnackBar("❌ فشل في حفظ الملف (الملف النهائي غير موجود)");
     }
