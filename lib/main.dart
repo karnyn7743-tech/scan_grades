@@ -318,7 +318,7 @@ class _MainScreenState extends State<MainScreen> {
     bool targetFound = false;
     int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
-    // 1. البحث عن الطالب
+    // البحث عن الطالب
     for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
       var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
       var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
@@ -356,44 +356,104 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // 2. ترميز الملف وتحويل النوع إلى Uint8List
+    // ترميز الملف
     final List<int>? fileBytesList = _excelInstance!.encode();
     if (fileBytesList == null) {
       _showSnackBar("❌ فشل في ترميز الملف");
       setState(() { _isLoading = false; });
       return;
     }
-
-    // تحويل List<int> إلى Uint8List
     final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
 
-    // 3. طلب حفظ الملف من المستخدم باستخدام FilePicker
-    final String? outputPath = await FilePicker.platform.saveFile(
-      dialogTitle: 'اختر مكان حفظ ملف الدرجات',
-      fileName: File(_selectedFilePath!).path.split('/').last,
-      bytes: fileBytes, // الآن النوع صحيح Uint8List
-    );
+    // استراتيجية الحفظ: محاولة 1 (حفظ في مجلد Downloads)
+    String? finalPath;
+    bool saved = false;
 
-    if (outputPath == null) {
-      _showSnackBar("❌ تم إلغاء الحفظ من قبل المستخدم");
-      setState(() { _isLoading = false; });
-      return;
+    // محاولة 1: حفظ في مجلد Downloads العام باستخدام path_provider
+    try {
+      final Directory? downloadsDir = await getDownloadsDirectory();
+      if (downloadsDir != null) {
+        final String gradesFolder = '${downloadsDir.path}/درجات الطلاب';
+        final Directory folder = Directory(gradesFolder);
+        if (!await folder.exists()) {
+          await folder.create(recursive: true);
+        }
+
+        final String fileName = File(_selectedFilePath!).path.split('/').last;
+        final String path = '$gradesFolder/$fileName';
+
+        final File file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        await file.writeAsBytes(fileBytes, flush: true);
+
+        if (await file.exists() && await file.length() > 0) {
+          finalPath = path;
+          saved = true;
+        }
+      }
+    } catch (e) {
+      print('محاولة الحفظ في Downloads فشلت: $e');
     }
 
-    // 4. التحقق من نجاح الحفظ
-    final File savedFile = File(outputPath);
-    if (await savedFile.exists() && await savedFile.length() > 0) {
+    // محاولة 2: إذا فشلت المحاولة 1، استخدم FilePicker لحفظ الملف
+    if (!saved) {
+      try {
+        final String? pickedPath = await FilePicker.platform.saveFile(
+          dialogTitle: 'اختر مكان حفظ ملف الدرجات',
+          fileName: File(_selectedFilePath!).path.split('/').last,
+          bytes: fileBytes,
+        );
+
+        if (pickedPath != null) {
+          final File file = File(pickedPath);
+          if (await file.exists() && await file.length() > 0) {
+            finalPath = pickedPath;
+            saved = true;
+          }
+        } else {
+          _showSnackBar("ℹ️ تم إلغاء اختيار مكان الحفظ");
+        }
+      } catch (e) {
+        print('محاولة الحفظ باستخدام FilePicker فشلت: $e');
+      }
+    }
+
+    // محاولة 3: حفظ في مجلد التطبيق كحل أخير
+    if (!saved) {
+      try {
+        final Directory appDir = await getApplicationDocumentsDirectory();
+        final String fileName = File(_selectedFilePath!).path.split('/').last;
+        final String path = '${appDir.path}/$fileName';
+
+        final File file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        await file.writeAsBytes(fileBytes, flush: true);
+
+        if (await file.exists() && await file.length() > 0) {
+          finalPath = path;
+          saved = true;
+        }
+      } catch (e) {
+        print('محاولة الحفظ في مجلد التطبيق فشلت: $e');
+      }
+    }
+
+    // عرض النتيجة
+    if (saved && finalPath != null) {
       setState(() {
         _gradedStudents += 1;
         _secretIdResult = "سيظهر هنا الرقم السري";
         _gradeController.clear();
         _isScanningActive = false;
-        _selectedFilePath = outputPath; // تحديث المسار
+        _selectedFilePath = finalPath;
       });
-
-      _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $outputPath");
+      _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
     } else {
-      _showSnackBar("❌ فشل في حفظ الملف");
+      _showSnackBar("❌ فشل حفظ الملف في جميع المحاولات!");
     }
 
   } catch (e) {
