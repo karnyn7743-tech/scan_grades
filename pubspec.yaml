@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  permission_handler: ^11.3.1 # اضف هذا السطر
   cupertino_icons: ^1.0.6
   mobile_scanner: ^5.1.1
   # مكتبات إدارة الملفات والإكسل (أوفلاين)
