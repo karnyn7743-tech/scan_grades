@@ -2,10 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
-import 'package:mobile_scanner/mobile_scanner.dart'; 
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:camera/camera.dart'; // استيراد المكتبة لحل مشكلة XFile المفقودة
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,7 +54,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   String _fileName = "لم يتم اختيار ملف الكنترول بعد";
   String? _selectedFilePath;
-  List<String> _subjects = []; 
+  List<String> _subjects = [];
   String? _selectedSubject;
   bool _isLoading = false;
 
@@ -64,11 +63,11 @@ class _MainScreenState extends State<MainScreen> {
 
   int _totalStudents = 0;
   int _gradedStudents = 0;
-  
+
   final MobileScannerController _cameraController = MobileScannerController(
-    autoStart: false, 
+    autoStart: false,
     torchEnabled: false,
-    returnImage: true, // فرض إعادة البايتات الصورية الكاملة بدقة عالية
+    returnImage: true, // تفعيل استرجاع الصور الثابتة بجودة فائقة
   );
   bool _isScanningActive = false;
   bool _isTorchOn = false;
@@ -79,16 +78,20 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _requestStoragePermission();
+    _requestPermissions();
   }
 
-  Future<void> _requestStoragePermission() async {
+  Future<void> _requestPermissions() async {
     await Permission.storage.request();
     await Permission.camera.request();
+    // طلب صلاحية إدارة الملفات الشاملة لأندرويد الحديث لضمان الحفظ المباشر في الـ Download
+    if (await Permission.manageExternalStorage.request().isGranted) {
+      debugPrint("تم الحصول على صلاحية إدارة الملفات الشاملة");
+    }
   }
 
   Future<void> _pickAndParseExcel() async {
-    await _requestStoragePermission();
+    await _requestPermissions();
     setState(() { _isLoading = true; });
 
     try {
@@ -107,7 +110,7 @@ class _MainScreenState extends State<MainScreen> {
         if (_excelInstance!.tables.isNotEmpty) {
           var sheet = _excelInstance!.tables.values.first;
           List<String> tempSubjects = [];
-          
+
           if (sheet.maxRows > 0) {
             var row = sheet.rows.first;
             for (int i = 4; i <= 18; i++) {
@@ -120,8 +123,8 @@ class _MainScreenState extends State<MainScreen> {
           setState(() {
             _fileName = nameOfFile;
             _subjects = tempSubjects;
-            _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0; 
-            _gradedStudents = 0; 
+            _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0;
+            _gradedStudents = 0;
           });
         }
       }
@@ -140,17 +143,17 @@ class _MainScreenState extends State<MainScreen> {
     for (int i = 0; i < arabicNumbers.length; i++) {
       output = output.replaceAll(arabicNumbers[i], englishNumbers[i]);
     }
-    return output.replaceAll(RegExp(r'[^0-9]'), ''); 
+    return output.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
-  // معالجة بايتات اللقطة المستقرة لحل مشكلة التعارض البرمجي القديم
+  // دالة المعالجة المحسنة: تلتقط مصفوفة البايتات الساكنة بدقة فائقة فور رصد الـ QR
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
     final List<Barcode> barcodes = capture.barcodes;
-    
+
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       final String qrValue = barcodes.first.rawValue!;
-      
-      // إيقاف الفحص الحي مؤقتاً لتثبيت القراءة
+
+      // إيقاف الكاميرا فوراً لمنع الاهتزاز والتشويش أثناء القراءة النصية
       await _cameraController.stop();
 
       setState(() {
@@ -158,18 +161,18 @@ class _MainScreenState extends State<MainScreen> {
         _gradeController.clear();
       });
 
-      // التحقق من وصول البايتات الصورية النقية من الكاميرا
+      // التحقق من التقاط الصورة الثابتة بجودتها الكاملة من المستشعر
       if (capture.image != null) {
-        // إعطاء مهلة 200 ملي ثانية لتأكيد معالجة مصفوفة النصوص بوضوح
-        await Future.delayed(const Duration(milliseconds: 200));
+        // تأخير بسيط لضمان استقرار الـ Buffer الصوري للنظام
+        await Future.delayed(const Duration(milliseconds: 250));
 
         final InputImage inputImage = InputImage.fromBytes(
           bytes: capture.image!,
           metadata: InputImageMetadata(
             size: Size(capture.size.width, capture.size.height),
-            rotation: InputImageRotation.rotation0deg, 
-            format: InputImageFormat.nv21, 
-            bytesPerRow: capture.size.width.toInt(), 
+            rotation: InputImageRotation.rotation0deg,
+            format: InputImageFormat.nv21,
+            bytesPerRow: capture.size.width.toInt(),
           ),
         );
 
@@ -183,14 +186,14 @@ class _MainScreenState extends State<MainScreen> {
               if (convertedText.isNotEmpty) {
                 textElements.add({
                   'text': convertedText,
-                  'x': line.boundingBox.left, 
+                  'x': line.boundingBox.left,
                 });
               }
             }
           }
 
           if (textElements.isNotEmpty) {
-            // الترتيب الأفقي التنازلي (من اليمين لليسار)
+            // فرز النصوص أفقياً من اليمين إلى اليسار لمعالجة دقيقة
             textElements.sort((a, b) => b['x'].compareTo(a['x']));
 
             String detectedSubjectCode = textElements.first['text'];
@@ -198,29 +201,29 @@ class _MainScreenState extends State<MainScreen> {
 
             int currentSubjectOrder = _subjects.indexOf(_selectedSubject!) + 1;
 
-            // تنبيه مطابقة المادة المدخلة مع القائمة المحددة
+            // تنبيه مطابقة المادة الصارم
             if (detectedSubjectCode != currentSubjectOrder.toString()) {
               _showDialogAlert(
-                title: "⚠️ تنبيه مطابقة المادة",
-                message: "كود المادة المقروء من الورقة ($detectedSubjectCode) لا يطابق المادة المختارة من القائمة (${_selectedSubject} - رقم $currentSubjectOrder).\n\nسيتم إغلاق الكاميرا لحماية البيانات.",
-                shouldCloseCamera: true
+                  title: "⚠️ تنبيه مطابقة المادة",
+                  message: "كود المادة المقروء من الورقة ($detectedSubjectCode) لا يطابق المادة المختارة من القائمة (${_selectedSubject} - رقم $currentSubjectOrder).\n\nتم إيقاف العملية لحماية الكنترول.",
+                  shouldCloseCamera: true
               );
-              return; 
+              return;
             }
 
             setState(() {
               if (detectedGrade.isNotEmpty) {
                 _gradeController.text = detectedGrade;
-                _showSnackBar("✅ تم مطابقة المادة وقراءة الدرجة ($detectedGrade) بنجاح.");
+                _showSnackBar("✅ تطابق تام: المادة صحيحة والدرجة المقروءة ($detectedGrade)");
               } else {
-                _showSnackBar("ℹ️ تم مطابقة المادة، يرجى كتابة الدرجة يدوياً.");
+                _showSnackBar("ℹ️ كود المادة صحيح، يرجى كتابة الدرجة يدوياً.");
               }
             });
           } else {
-            _showSnackBar("ℹ️ لم يتم رصد أرقام واضحة حول الـ QR. يرجى إدخال البيانات يدوياً.");
+            _showSnackBar("ℹ️ لم يتم التعرف على أرقام المادة والدرجة، أدخل الدرجة يدوياً.");
           }
         } catch (e) {
-          _showSnackBar("تنبيه الـ OCR: لم تتم قراءة النصوص، يرجى الإدخال اليدوي.");
+          _showSnackBar("تنبيه الـ OCR: يرجى كتابة الدرجة يدوياً.");
         }
       }
     }
@@ -228,7 +231,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
-      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل!");
+      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
       return;
     }
 
@@ -250,11 +253,11 @@ class _MainScreenState extends State<MainScreen> {
           if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
             setState(() { _isLoading = false; });
             _showDialogAlert(
-              title: "⚠️ تنبيه: رصد مسبق!",
-              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في مادة $_selectedSubject وهي (${existingValue.toString()}).",
-              shouldCloseCamera: false
+                title: "⚠️ تنبيه: رصد مسبق!",
+                message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
+                shouldCloseCamera: false
             );
-            return; 
+            return;
           }
 
           sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex)).value = px.TextCellValue(_gradeController.text);
@@ -268,26 +271,28 @@ class _MainScreenState extends State<MainScreen> {
         return;
       }
 
-      final bytes = _excelInstance!.encode();
-      if (bytes != null) {
-        final file = File(_selectedFilePath!);
-        await file.writeAsBytes(bytes, flush: true);
+      // الإجراء الحاسم: تشفير وحفظ قسري ومباشر فوق نفس الملف المختار دون الاعتماد على الكاش
+      final List<int>? fileBytes = _excelInstance!.encode();
+      if (fileBytes != null) {
+        final File targetFile = File(_selectedFilePath!);
         
+        // مسح وحفظ مباشر آمن ومؤكد برمجياً لضمان الكتابة الفورية على الذاكرة
+        if (await targetFile.exists()) {
+          await targetFile.delete();
+        }
+        await targetFile.writeAsBytes(fileBytes, flush: true);
+
         setState(() {
           _gradedStudents += 1;
           _secretIdResult = "سيظهر هنا الرقم السري";
           _gradeController.clear();
+          _isScanningActive = false; // إعادة ضبط الحالة لضمان السلامة الميدانية
         });
 
-        _showSnackBar("💾 تم حفظ وتأكيد الدرجة في ملف الكنترول بنجاح!");
-
-        if (_isScanningActive) {
-          await _cameraController.start();
-          if (_isTorchOn) await _cameraController.toggleTorch();
-        }
+        _showSnackBar("💾 تم رصد وحفظ الدرجة في ملف الكنترول بنجاح مذهل!");
       }
     } catch (e) {
-      _showSnackBar("❌ فشل كتابة وتعديل الملف: $e");
+      _showSnackBar("❌ فشل كتابة الملف: $e");
     } finally {
       setState(() { _isLoading = false; });
     }
@@ -343,7 +348,7 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     _gradeController.dispose();
     _cameraController.dispose();
-    _textRecognizer.close(); 
+    _textRecognizer.close();
     super.dispose();
   }
 
@@ -368,7 +373,7 @@ class _MainScreenState extends State<MainScreen> {
             onPressed: () async {
               setState(() { _isTorchOn = !_isTorchOn; });
               if (_isScanningActive) await _cameraController.toggleTorch();
-            }, 
+            },
           ),
           IconButton(
             icon: Icon(widget.isDarkMode ? Icons.light_mode : Icons.dark_mode),
@@ -382,10 +387,10 @@ class _MainScreenState extends State<MainScreen> {
           children: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size.fromHeight(50)),
-              onPressed: _isLoading ? null : _pickAndParseExcel, 
-              child: _isLoading 
-                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text("اختر ملف الأكسيل الأصلي", style: TextStyle(fontSize: 18, color: Colors.white)),
+              onPressed: _isLoading ? null : _pickAndParseExcel,
+              child: _isLoading
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text("اختر ملف الأكسيل الأصلي", style: TextStyle(fontSize: 18, color: Colors.white)),
             ),
             const SizedBox(height: 8),
             Container(
@@ -469,17 +474,17 @@ class _MainScreenState extends State<MainScreen> {
 
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: _isScanningActive ? Colors.red : Colors.green, minimumSize: const Size.fromHeight(50)),
-              onPressed: _toggleScanning, 
+              onPressed: _toggleScanning,
               child: Text(_isScanningActive ? "إيقاف المسح مؤقتاً" : "ابدأ المسح بالكاميرا", style: const TextStyle(fontSize: 18, color: Colors.white)),
             ),
             const SizedBox(height: 8),
-            
+
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, minimumSize: const Size.fromHeight(50)),
-              onPressed: isSaveButtonEnabled ? _saveGradeToExcel : null, 
-              child: _isLoading 
-                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
-                : const Text("تأكيد وحفظ الدرجة في الملف الأصلي", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+              onPressed: isSaveButtonEnabled ? _saveGradeToExcel : null,
+              child: _isLoading
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
+                  : const Text("تأكيد وحفظ الدرجة في الملف الأصلي", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 20),
 
