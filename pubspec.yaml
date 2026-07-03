@@ -1,4 +1,4 @@
-name: correcting_ papers_withcode
+name: correcting_papers_withcode
 description: نظام إدخال درجات الطلاب عبر مسح QR Code والدرجة المكتوبة بخط اليد
 publish_to: 'none'
 version: 1.0.0+1
