@@ -9,13 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  permission_handler: ^11.3.1 # اضف هذا السطر
   cupertino_icons: ^1.0.6
+  permission_handler: ^11.3.1
   mobile_scanner: ^5.1.1
-  # مكتبات إدارة الملفات والإكسل (أوفلاين)
   excel: ^4.0.6
   file_picker: ^8.0.0
-  permission_handler: ^11.3.0
 
   # مكتبات الكاميرا والذكاء الاصطناعي أوفلاين (OCR & Barcode)
   camera: ^0.11.0
