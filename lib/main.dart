@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
 import 'package:mobile_scanner/mobile_scanner.dart'; 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:permission_handler/permission_handler.dart'; // حزمة الأذونات الجديدة
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,7 +19,6 @@ class StugraScanApp extends StatefulWidget {
 }
 
 class _StugraScanAppState extends State<StugraScanApp> {
-  // متغيّر للتحكم في الوضع الليلي والنهاري للتطبيق بالكامل
   bool _isDarkMode = true;
 
   @override
@@ -69,6 +69,7 @@ class _MainScreenState extends State<MainScreen> {
   final MobileScannerController _cameraController = MobileScannerController(
     autoStart: false, 
     torchEnabled: false,
+    returnImage: true, // تفعيل إعادة الصورة بجودة أعلى للمعالجة
   );
   bool _isScanningActive = false;
   bool _isTorchOn = false;
@@ -76,7 +77,25 @@ class _MainScreenState extends State<MainScreen> {
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   px.Excel? _excelInstance;
 
+  @override
+  void initState() {
+    super.initState();
+    _requestStoragePermission(); // طلب إذن الوصول للملفات فور فتح التطبيق
+  }
+
+  // دالة طلب إذن التخزين برمجياً (حل مشكلة عدم الحفظ)
+  Future<void> _requestStoragePermission() async {
+    if (await Permission.storage.request().isGranted) {
+      // تم منح الإذن بنجاح
+    } else {
+      _showSnackBar("⚠️ يتطلب التطبيق إذن التخزين لحفظ الدرجات في ملف الإكسيل!");
+    }
+  }
+
   Future<void> _pickAndParseExcel() async {
+    // التأكد من وجود الإذن قبل فتح الملفات
+    await _requestStoragePermission();
+
     setState(() {
       _isLoading = true;
     });
@@ -131,14 +150,21 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  // دالة معالجة الصورة المحدثة (حل مشكلة الـ OCR وكود المادة)
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
     final List<Barcode> barcodes = capture.barcodes;
     
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       final String qrValue = barcodes.first.rawValue!;
       
-      _cameraController.stop();
+      // إيقاف الكاميرا فوراً للتركيز على المعالجة والمراجعة اليدوية
+      await _cameraController.stop();
 
+      setState(() {
+        _secretIdResult = qrValue;
+      });
+
+      // التحقق من جودة بايتات الصورة القادمة من الفحص
       if (capture.image != null) {
         final InputImage inputImage = InputImage.fromBytes(
           bytes: capture.image!,
@@ -152,63 +178,38 @@ class _MainScreenState extends State<MainScreen> {
 
         try {
           final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
-          List<Map<String, dynamic>> textElements = [];
+          List<String> detectedNumbers = [];
 
+          // استخراج كافة السطور التي تحتوي على أرقام بدون تعقيد الفلترة الأفقية حالياً لضمان العثور على أي رقم
           for (TextBlock block in recognizedText.blocks) {
             for (TextLine line in block.lines) {
               String cleanText = _extractDigits(line.text.trim());
               if (cleanText.isNotEmpty) {
-                textElements.add({
-                  'text': cleanText,
-                  'x': line.boundingBox.left, 
-                });
+                detectedNumbers.add(cleanText);
               }
             }
           }
 
-          String detectedSubjectCode = "";
-          String detectedGrade = "";
-
-          if (textElements.isNotEmpty) {
-            textElements.sort((a, b) => a['x'].compareTo(b['x']));
-
-            if (textElements.length >= 2) {
-              detectedSubjectCode = textElements.first['text']; 
-              detectedGrade = textElements.last['text'];        
-            } else if (textElements.length == 1) {
-              detectedGrade = textElements.first['text'];
-            }
+          // إذا نجح الـ OCR في التقاط أي أرقام من الورقة
+          if (detectedNumbers.isNotEmpty) {
+            setState(() {
+              // لإعطائك النتيجة فوراً: نضع آخر رقم مكتشف كدرجة متوقعة (غالباً تكون الدرجة بالأسفل أو اليسار)
+              _gradeController.text = detectedNumbers.last;
+            });
+            
+            _showSnackBar("🔍 تم التقاط أرقام من الورقة: ${detectedNumbers.join(' - ')}");
+          } else {
+            _showSnackBar("ℹ️ تم قراءة الـ QR بنجاح، لكن خط اليد غير واضح للـ OCR. يرجى كتابة الدرجة.");
           }
-
-          int currentSubjectIndex = _subjects.indexOf(_selectedSubject!) + 1; 
-
-          if (detectedSubjectCode.isNotEmpty && detectedSubjectCode != currentSubjectIndex.toString()) {
-            _showSnackBar("⚠️ كود المادة ($detectedSubjectCode) لا يطابق المادة المختارة!");
-            _cameraController.start(); 
-            return;
-          }
-
-          setState(() {
-            _secretIdResult = qrValue; 
-            if (detectedGrade.isNotEmpty) {
-              _gradeController.text = detectedGrade; 
-            }
-          });
 
         } catch (e) {
-          setState(() {
-            _secretIdResult = qrValue;
-          });
-          _showSnackBar("تم التقاط الرقم السري. يرجى كتابة الدرجة يدوياً.");
+          _showSnackBar("تنبيه الـ OCR: يرجى كتابة الدرجة يدوياً.");
         }
-      } else {
-        setState(() {
-          _secretIdResult = qrValue;
-        });
       }
     }
   }
 
+  // دالة الحفظ المحدثة والمؤمنة برمجياً
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل!");
@@ -223,6 +224,12 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
+    // إعادة طلب التأكيد البرمجي للتخزين لحل المشكلة نهائياً على أندرويد 10
+    if (!await Permission.storage.isGranted) {
+      await _requestStoragePermission();
+      if (!await Permission.storage.isGranted) return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -234,8 +241,8 @@ class _MainScreenState extends State<MainScreen> {
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex)).value;
-        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
+        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex)).value;
 
         if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
           var targetCell = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex));
@@ -264,7 +271,7 @@ class _MainScreenState extends State<MainScreen> {
 
         _showSnackBar("💾 تم حفظ الدرجة بنجاح في الملف الأصلي!");
 
-        // عند إعادة التشغيل التلقائي للكاميرا، نضمن بقاء الفلاش يعمل إذا كان المستخدم قد فعله
+        // إعادة تفعيل الكاميرا تلقائياً للورقة التالية
         if (_isScanningActive) {
           await _cameraController.start();
           if (_isTorchOn) {
@@ -297,7 +304,6 @@ class _MainScreenState extends State<MainScreen> {
 
     if (_isScanningActive) {
       await _cameraController.start();
-      // تشغيل فلاش المصابيح تلقائياً عند بدء المسح إذا كانت وضعيته On
       if (_isTorchOn) {
         await _cameraController.toggleTorch();
       }
@@ -320,7 +326,6 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // تنسيق الألوان لتتغير ديناميكياً مع الثيم (ليلي / نهاري)
     Color appBarColor = widget.isDarkMode ? const Color(0xFF7B1FA2) : Colors.purple;
     Color backgroundColor = widget.isDarkMode ? const Color(0xFF4A148C) : Colors.purple.shade50;
     Color fieldColor = widget.isDarkMode ? const Color(0xFF212121) : Colors.white;
@@ -335,7 +340,6 @@ class _MainScreenState extends State<MainScreen> {
         centerTitle: true,
         backgroundColor: appBarColor,
         actions: [
-          // 1. زر التحكم بالفلاش وتجهيزه للمسح الضوئي
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
             tooltip: 'تحضير الفلاش للمسح الضوئي',
@@ -343,7 +347,6 @@ class _MainScreenState extends State<MainScreen> {
               setState(() {
                 _isTorchOn = !_isTorchOn;
               });
-              // إذا كانت الكاميرا تعمل بالفعل، نغير حالة الفلاش فوراً
               if (_isScanningActive) {
                 await _cameraController.toggleTorch();
               } else {
@@ -351,7 +354,6 @@ class _MainScreenState extends State<MainScreen> {
               }
             }, 
           ),
-          // 2. زر التبديل بين الوضع الليلي والنهاري
           IconButton(
             icon: Icon(widget.isDarkMode ? Icons.light_mode : Icons.dark_mode),
             tooltip: widget.isDarkMode ? 'الوضع النهاري' : 'الوضع الليلي',
