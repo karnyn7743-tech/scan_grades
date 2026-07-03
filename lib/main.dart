@@ -10,22 +10,44 @@ void main() {
   runApp(const StugraScanApp());
 }
 
-class StugraScanApp extends StatelessWidget {
+class StugraScanApp extends StatefulWidget {
   const StugraScanApp({super.key});
+
+  @override
+  State<StugraScanApp> createState() => _StugraScanAppState();
+}
+
+class _StugraScanAppState extends State<StugraScanApp> {
+  // متغيّر للتحكم في الوضع الليلي والنهاري للتطبيق بالكامل
+  bool _isDarkMode = true;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'StugraScan',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(),
-      home: const MainScreen(),
+      theme: _isDarkMode ? ThemeData.dark() : ThemeData.light(),
+      home: MainScreen(
+        isDarkMode: _isDarkMode,
+        onThemeChanged: (bool newTheme) {
+          setState(() {
+            _isDarkMode = newTheme;
+          });
+        },
+      ),
     );
   }
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  final bool isDarkMode;
+  final ValueChanged<bool> onThemeChanged;
+
+  const MainScreen({
+    super.key,
+    required this.isDarkMode,
+    required this.onThemeChanged,
+  });
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -52,11 +74,8 @@ class _MainScreenState extends State<MainScreen> {
   bool _isTorchOn = false;
 
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-  
-  // كائن الإكسيل الحالي لحفظ التعديلات في الذاكرة قبل الكتابة على القرص
   px.Excel? _excelInstance;
 
-  // 1. دالة اختيار ومعالجة ملف الإكسيل
   Future<void> _pickAndParseExcel() async {
     setState(() {
       _isLoading = true;
@@ -81,7 +100,6 @@ class _MainScreenState extends State<MainScreen> {
           
           if (sheet.maxRows > 0) {
             var row = sheet.rows.first;
-            // الأعمدة من E إلى S تعني برمجياً الإندكس من 4 إلى 18
             for (int i = 4; i <= 18; i++) {
               if (i < row.length && row[i] != null) {
                 tempSubjects.add(row[i]!.value.toString());
@@ -113,14 +131,12 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // 2. دالة معالجة الصورة الذكية عبر الكاميرا
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
     final List<Barcode> barcodes = capture.barcodes;
     
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       final String qrValue = barcodes.first.rawValue!;
       
-      // إيقاف مؤقت للسماح للمستخدم بالمراجعة والتعديل يدوياً
       _cameraController.stop();
 
       if (capture.image != null) {
@@ -193,7 +209,6 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // 3. دالة البحث وحفظ الدرجة في ملف الأكسيل الأصلي وإعادة تشغيل الكاميرا
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل!");
@@ -216,18 +231,13 @@ class _MainScreenState extends State<MainScreen> {
       var sheet = _excelInstance!.tables.values.first;
       bool targetFound = false;
 
-      // تحديد رقم العمود الخاص بالمادة المختارة
-      // الترتيب يبدأ من العمود E (اندكس 4)
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
-      // البحث عن صف الطالب بواسطة الرقم السري (بافتراض أن الرقم السري في العمود الأول A أو الثاني B)
-      // سنبحث في أول عمودين للتأكد من مطابقة الرقم السري
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
         var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex)).value;
 
         if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
-          // إسقاط الدرجة في خانة المادة المحددة لهذا الصف
           var targetCell = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: subjectColumnIndex, rowIndex: rowIndex));
           targetCell.value = px.TextCellValue(_gradeController.text);
           targetFound = true;
@@ -241,7 +251,6 @@ class _MainScreenState extends State<MainScreen> {
         return;
       }
 
-      // حفظ التعديلات وكتابتها في نفس مسار الملف الأصلي تماماً
       final bytes = _excelInstance!.encode();
       if (bytes != null) {
         final file = File(_selectedFilePath!);
@@ -249,16 +258,18 @@ class _MainScreenState extends State<MainScreen> {
         
         setState(() {
           _gradedStudents += 1;
-          // تصفير الحقول للعملية التالية
           _secretIdResult = "سيظهر هنا الرقم السري";
           _gradeController.clear();
         });
 
         _showSnackBar("💾 تم حفظ الدرجة بنجاح في الملف الأصلي!");
 
-        // إعادة تفعيل الكاميرا تلقائياً للورقة التالية
+        // عند إعادة التشغيل التلقائي للكاميرا، نضمن بقاء الفلاش يعمل إذا كان المستخدم قد فعله
         if (_isScanningActive) {
-          _cameraController.start();
+          await _cameraController.start();
+          if (_isTorchOn) {
+            await _cameraController.toggleTorch();
+          }
         }
       }
     } catch (e) {
@@ -274,7 +285,7 @@ class _MainScreenState extends State<MainScreen> {
     return input.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
-  void _toggleScanning() {
+  void _toggleScanning() async {
     if (_selectedSubject == null) {
       _showSnackBar("يرجى اختيار المادة المراد رصدها أولاً قبل بدء المسح!");
       return;
@@ -285,9 +296,13 @@ class _MainScreenState extends State<MainScreen> {
     });
 
     if (_isScanningActive) {
-      _cameraController.start();
+      await _cameraController.start();
+      // تشغيل فلاش المصابيح تلقائياً عند بدء المسح إذا كانت وضعيته On
+      if (_isTorchOn) {
+        await _cameraController.toggleTorch();
+      }
     } else {
-      _cameraController.stop();
+      await _cameraController.stop();
     }
   }
 
@@ -305,29 +320,44 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    Color primaryPurple = const Color(0xFF7B1FA2);
-    Color fieldColor = const Color(0xFF212121);
+    // تنسيق الألوان لتتغير ديناميكياً مع الثيم (ليلي / نهاري)
+    Color appBarColor = widget.isDarkMode ? const Color(0xFF7B1FA2) : Colors.purple;
+    Color backgroundColor = widget.isDarkMode ? const Color(0xFF4A148C) : Colors.purple.shade50;
+    Color fieldColor = widget.isDarkMode ? const Color(0xFF212121) : Colors.white;
+    Color textColor = widget.isDarkMode ? Colors.white : Colors.black87;
 
-    // تفعيل زر الحفظ فقط عند وجود بيانات جاهزة للحفظ
     bool isSaveButtonEnabled = _secretIdResult != "سيظهر هنا الرقم السري" && !_isLoading;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF4A148C),
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         title: const Text("برنامج إسقاط الدرجات بالأكواد"),
         centerTitle: true,
-        backgroundColor: primaryPurple,
+        backgroundColor: appBarColor,
         actions: [
+          // 1. زر التحكم بالفلاش وتجهيزه للمسح الضوئي
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
-            onPressed: () {
+            tooltip: 'تحضير الفلاش للمسح الضوئي',
+            onPressed: () async {
+              setState(() {
+                _isTorchOn = !_isTorchOn;
+              });
+              // إذا كانت الكاميرا تعمل بالفعل، نغير حالة الفلاش فوراً
               if (_isScanningActive) {
-                _cameraController.toggleTorch();
-                setState(() {
-                  _isTorchOn = !_isTorchOn;
-                });
+                await _cameraController.toggleTorch();
+              } else {
+                _showSnackBar(_isTorchOn ? "💡 تم تحضير الفلاش (سيعمل تلقائياً عند فتح الكاميرا)" : "🔕 تم إيقاف الفلاش التلقائي");
               }
             }, 
+          ),
+          // 2. زر التبديل بين الوضع الليلي والنهاري
+          IconButton(
+            icon: Icon(widget.isDarkMode ? Icons.light_mode : Icons.dark_mode),
+            tooltip: widget.isDarkMode ? 'الوضع النهاري' : 'الوضع الليلي',
+            onPressed: () {
+              widget.onThemeChanged(!widget.isDarkMode);
+            },
           ),
         ],
       ),
@@ -355,21 +385,22 @@ class _MainScreenState extends State<MainScreen> {
               decoration: BoxDecoration(
                 color: fieldColor,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withOpacity(0.3)),
               ),
               child: Text(
                 _fileName,
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: textColor),
                 textAlign: TextAlign.center,
               ),
             ),
             const SizedBox(height: 12),
 
-            const Align(
+            Align(
               alignment: Alignment.centerRight,
               child: Text(
                 "اختر المادة :",
                 style: TextStyle(
-                  color: Colors.white,
+                  color: textColor,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -380,14 +411,15 @@ class _MainScreenState extends State<MainScreen> {
               decoration: BoxDecoration(
                 color: fieldColor,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withOpacity(0.3)),
               ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
                   dropdownColor: fieldColor,
                   isExpanded: true,
-                  hint: Text(
-                    _subjects.isEmpty ? "يرجى اختيار ملف الأكسيل لجلب المواد" : "انقر لتحديد المادة المفتوحة ورصدها",
-                    style: const TextStyle(color: Colors.grey),
+                  hint: const Text(
+                    "انقر لتحديد المادة المفتوحة ورصدها",
+                    style: TextStyle(color: Colors.grey),
                   ),
                   value: _selectedSubject,
                   items: _subjects.isEmpty ? null : _subjects
@@ -396,7 +428,7 @@ class _MainScreenState extends State<MainScreen> {
                           value: sub,
                           child: Text(
                             sub,
-                            style: const TextStyle(color: Colors.white),
+                            style: TextStyle(color: textColor),
                           ),
                         ),
                       )
@@ -411,12 +443,12 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 12),
 
-            const Align(
+            Align(
               alignment: Alignment.centerRight,
               child: Text(
                 "الرقم السري :",
                 style: TextStyle(
-                  color: Colors.white,
+                  color: textColor,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -428,10 +460,11 @@ class _MainScreenState extends State<MainScreen> {
               decoration: BoxDecoration(
                 color: fieldColor,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withOpacity(0.3)),
               ),
               child: Text(
                 _secretIdResult,
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -443,10 +476,10 @@ class _MainScreenState extends State<MainScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text(
-                        "الدرجة المكتشفة (يمكنك تعديلها) :",
+                      Text(
+                        "الدرجة (يمكنك تعديلها) :",
                         style: TextStyle(
-                          color: Colors.white,
+                          color: textColor,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -455,10 +488,14 @@ class _MainScreenState extends State<MainScreen> {
                         controller: _gradeController,
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold),
                         decoration: InputDecoration(
                           fillColor: fieldColor,
                           filled: true,
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -472,10 +509,10 @@ class _MainScreenState extends State<MainScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text(
+                      Text(
                         "العداد :",
                         style: TextStyle(
-                          color: Colors.white,
+                          color: textColor,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -486,12 +523,12 @@ class _MainScreenState extends State<MainScreen> {
                         decoration: BoxDecoration(
                           color: fieldColor,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade700),
+                          border: Border.all(color: Colors.grey.shade500),
                         ),
                         child: Text(
                           "$_gradedStudents / $_totalStudents",
                           style: const TextStyle(
-                            color: Colors.greenAccent,
+                            color: Colors.green,
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
                           ),
@@ -518,7 +555,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 8),
             
-            // زر حفظ الدرجة المحدث
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent,
