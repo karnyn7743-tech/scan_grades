@@ -1,14 +1,16 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:image/image.dart' as img;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const StugraScanApp());
+  runApp(const scan_grades_qrcodeApp());
 }
 
 class StugraScanApp extends StatefulWidget {
@@ -52,6 +54,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  // ===================== متغيرات الحالة =====================
   String _fileName = "لم يتم اختيار ملف الكنترول بعد";
   String? _selectedFilePath;
   List<String> _subjects = [];
@@ -67,7 +70,7 @@ class _MainScreenState extends State<MainScreen> {
   final MobileScannerController _cameraController = MobileScannerController(
     autoStart: false,
     torchEnabled: false,
-    returnImage: true, // تفعيل استرجاع الصور الثابتة بجودة فائقة
+    returnImage: true,
   );
   bool _isScanningActive = false;
   bool _isTorchOn = false;
@@ -75,21 +78,31 @@ class _MainScreenState extends State<MainScreen> {
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   px.Excel? _excelInstance;
 
+  // ===================== دورة الحياة =====================
   @override
   void initState() {
     super.initState();
     _requestPermissions();
   }
 
+  @override
+  void dispose() {
+    _gradeController.dispose();
+    _cameraController.dispose();
+    _textRecognizer.close();
+    super.dispose();
+  }
+
+  // ===================== الصلاحيات =====================
   Future<void> _requestPermissions() async {
     await Permission.storage.request();
     await Permission.camera.request();
-    // طلب صلاحية إدارة الملفات الشاملة لأندرويد الحديث لضمان الحفظ المباشر في الـ Download
     if (await Permission.manageExternalStorage.request().isGranted) {
       debugPrint("تم الحصول على صلاحية إدارة الملفات الشاملة");
     }
   }
 
+  // ===================== اختيار ملف Excel =====================
   Future<void> _pickAndParseExcel() async {
     await _requestPermissions();
     setState(() { _isLoading = true; });
@@ -136,99 +149,158 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  // ===================== معالجة الأرقام العربية =====================
   String _convertArabicHindiDigits(String input) {
-    var arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    var englishNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabicDigits = {
+      '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+      '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+    };
     String output = input;
-    for (int i = 0; i < arabicNumbers.length; i++) {
-      output = output.replaceAll(arabicNumbers[i], englishNumbers[i]);
-    }
-    return output.replaceAll(RegExp(r'[^0-9]'), '');
+    arabicDigits.forEach((arabic, english) {
+      output = output.replaceAll(arabic, english);
+    });
+    return output.replaceAll(RegExp(r'[^0-9.]'), '');
   }
 
-  // دالة المعالجة المحسنة: تلتقط مصفوفة البايتات الساكنة بدقة فائقة فور رصد الـ QR
+  String _extractNumber(String text) {
+    final converted = _convertArabicHindiDigits(text);
+    final match = RegExp(r'\d+').firstMatch(converted);
+    return match?.group(0) ?? '';
+  }
+
+  // ===================== قص الصورة إلى مناطق =====================
+  class _ImageRegions {
+    final Uint8List? leftRegion;
+    final Uint8List? centerRegion;
+    final Uint8List? rightRegion;
+
+    _ImageRegions({this.leftRegion, this.centerRegion, this.rightRegion});
+  }
+
+  Future<_ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
+    try {
+      final img.Image? fullImage = img.decodeImage(imageBytes);
+      if (fullImage == null) return null;
+
+      final int width = fullImage.width;
+      final int height = fullImage.height;
+      final int regionWidth = width ~/ 3;
+
+      // تقسيم الصورة إلى 3 مناطق أفقية
+      final leftRegionImg = img.copyCrop(fullImage, x: 0, y: 0, width: regionWidth, height: height);
+      final centerRegionImg = img.copyCrop(fullImage, x: regionWidth, y: 0, width: regionWidth, height: height);
+      final rightRegionImg = img.copyCrop(fullImage, x: regionWidth * 2, y: 0, width: regionWidth, height: height);
+
+      return _ImageRegions(
+        leftRegion: Uint8List.fromList(img.encodePng(leftRegionImg)),
+        centerRegion: Uint8List.fromList(img.encodePng(centerRegionImg)),
+        rightRegion: Uint8List.fromList(img.encodePng(rightRegionImg)),
+      );
+    } catch (e) {
+      print('خطأ في القص: $e');
+      return null;
+    }
+  }
+
+  // ===================== التعرف على النص =====================
+  Future<String> _recognizeTextFromBytes(Uint8List bytes) async {
+    try {
+      final inputImage = InputImage.fromBytes(
+        bytes: bytes,
+        metadata: InputImageMetadata(
+          size: const Size(300, 300),
+          rotation: InputImageRotation.rotation0deg,
+          format: InputImageFormat.png,
+          bytesPerRow: 0,
+        ),
+      );
+
+      final RecognizedText recognized = await _textRecognizer.processImage(inputImage);
+      return recognized.text.trim();
+    } catch (e) {
+      print('خطأ في OCR: $e');
+      return '';
+    }
+  }
+
+  // ===================== معالجة الصورة الملتقطة =====================
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
-    final List<Barcode> barcodes = capture.barcodes;
+    if (capture.barcodes.isEmpty || capture.barcodes.first.rawValue == null) return;
 
-    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-      final String qrValue = barcodes.first.rawValue!;
+    final String qrValue = capture.barcodes.first.rawValue!;
 
-      // إيقاف الكاميرا فوراً لمنع الاهتزاز والتشويش أثناء القراءة النصية
-      await _cameraController.stop();
+    // إيقاف الكاميرا مؤقتاً
+    await _cameraController.stop();
 
+    setState(() {
+      _secretIdResult = qrValue;
+      _gradeController.clear();
+    });
+
+    if (capture.image == null) {
+      _showSnackBar("⚠️ لم يتم التقاط الصورة، حاول مجدداً");
+      return;
+    }
+
+    // قص الصورة إلى 3 مناطق
+    final regions = await _cropImageRegions(capture.image!, capture.size);
+    if (regions == null) {
+      _showSnackBar("⚠️ فشل في قص الصورة");
+      return;
+    }
+
+    // 1. قراءة رقم المادة من المنطقة اليمنى
+    String subjectCode = '';
+    if (regions.rightRegion != null) {
+      final rightText = await _recognizeTextFromBytes(regions.rightRegion!);
+      subjectCode = _extractNumber(rightText);
+      print('📚 رقم المادة المقروء: $subjectCode');
+    }
+
+    // 2. قراءة الدرجة من المنطقة اليسرى
+    String gradeText = '';
+    if (regions.leftRegion != null) {
+      final leftText = await _recognizeTextFromBytes(regions.leftRegion!);
+      gradeText = _extractNumber(leftText);
+      print('⭐ الدرجة المقروءة: $gradeText');
+    }
+
+    // 3. التحقق من مطابقة رقم المادة
+    if (_selectedSubject == null) {
+      _showSnackBar("⚠️ يرجى اختيار المادة أولاً");
+      // إعادة تشغيل الكاميرا
+      if (_isScanningActive) await _cameraController.start();
+      return;
+    }
+
+    int currentSubjectIndex = _subjects.indexOf(_selectedSubject!) + 1;
+
+    if (subjectCode.isNotEmpty && subjectCode != currentSubjectIndex.toString()) {
+      _showDialogAlert(
+        title: "⚠️ تنبيه: عدم تطابق المادة",
+        message: "رقم المادة المقروء ($subjectCode) لا يطابق المادة المختارة (${_selectedSubject} - رقم $currentSubjectIndex)\n\nتم إيقاف العملية لحماية الكنترول.",
+        shouldCloseCamera: true,
+      );
+      return;
+    }
+
+    // 4. عرض الدرجة المقروءة
+    if (gradeText.isNotEmpty) {
       setState(() {
-        _secretIdResult = qrValue;
-        _gradeController.clear();
+        _gradeController.text = gradeText;
       });
+      _showSnackBar("✅ تم قراءة الدرجة: $gradeText");
+    } else {
+      _showSnackBar("ℹ️ لم يتم التعرف على الدرجة، أدخلها يدوياً");
+    }
 
-      // التحقق من التقاط الصورة الثابتة بجودتها الكاملة من المستشعر
-      if (capture.image != null) {
-        // تأخير بسيط لضمان استقرار الـ Buffer الصوري للنظام
-        await Future.delayed(const Duration(milliseconds: 250));
-
-        final InputImage inputImage = InputImage.fromBytes(
-          bytes: capture.image!,
-          metadata: InputImageMetadata(
-            size: Size(capture.size.width, capture.size.height),
-            rotation: InputImageRotation.rotation0deg,
-            format: InputImageFormat.nv21,
-            bytesPerRow: capture.size.width.toInt(),
-          ),
-        );
-
-        try {
-          final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
-          List<Map<String, dynamic>> textElements = [];
-
-          for (TextBlock block in recognizedText.blocks) {
-            for (TextLine line in block.lines) {
-              String convertedText = _convertArabicHindiDigits(line.text.trim());
-              if (convertedText.isNotEmpty) {
-                textElements.add({
-                  'text': convertedText,
-                  'x': line.boundingBox.left,
-                });
-              }
-            }
-          }
-
-          if (textElements.isNotEmpty) {
-            // فرز النصوص أفقياً من اليمين إلى اليسار لمعالجة دقيقة
-            textElements.sort((a, b) => b['x'].compareTo(a['x']));
-
-            String detectedSubjectCode = textElements.first['text'];
-            String detectedGrade = textElements.length > 1 ? textElements.last['text'] : "";
-
-            int currentSubjectOrder = _subjects.indexOf(_selectedSubject!) + 1;
-
-            // تنبيه مطابقة المادة الصارم
-            if (detectedSubjectCode != currentSubjectOrder.toString()) {
-              _showDialogAlert(
-                  title: "⚠️ تنبيه مطابقة المادة",
-                  message: "كود المادة المقروء من الورقة ($detectedSubjectCode) لا يطابق المادة المختارة من القائمة (${_selectedSubject} - رقم $currentSubjectOrder).\n\nتم إيقاف العملية لحماية الكنترول.",
-                  shouldCloseCamera: true
-              );
-              return;
-            }
-
-            setState(() {
-              if (detectedGrade.isNotEmpty) {
-                _gradeController.text = detectedGrade;
-                _showSnackBar("✅ تطابق تام: المادة صحيحة والدرجة المقروءة ($detectedGrade)");
-              } else {
-                _showSnackBar("ℹ️ كود المادة صحيح، يرجى كتابة الدرجة يدوياً.");
-              }
-            });
-          } else {
-            _showSnackBar("ℹ️ لم يتم التعرف على أرقام المادة والدرجة، أدخل الدرجة يدوياً.");
-          }
-        } catch (e) {
-          _showSnackBar("تنبيه الـ OCR: يرجى كتابة الدرجة يدوياً.");
-        }
-      }
+    // إعادة تشغيل الكاميرا
+    if (_isScanningActive) {
+      await _cameraController.start();
     }
   }
 
+  // ===================== حفظ الدرجة في Excel =====================
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
@@ -243,8 +315,7 @@ class _MainScreenState extends State<MainScreen> {
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
-        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
         if (cellA.toString().trim() == _secretIdResult.trim() || cellB.toString().trim() == _secretIdResult.trim()) {
           targetFound = true;
@@ -253,9 +324,9 @@ class _MainScreenState extends State<MainScreen> {
           if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
             setState(() { _isLoading = false; });
             _showDialogAlert(
-                title: "⚠️ تنبيه: رصد مسبق!",
-                message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
-                shouldCloseCamera: false
+              title: "⚠️ تنبيه: رصد مسبق!",
+              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
+              shouldCloseCamera: false,
             );
             return;
           }
@@ -271,12 +342,10 @@ class _MainScreenState extends State<MainScreen> {
         return;
       }
 
-      // الإجراء الحاسم: تشفير وحفظ قسري ومباشر فوق نفس الملف المختار دون الاعتماد على الكاش
+      // حفظ الملف مباشرة في المسار المختار
       final List<int>? fileBytes = _excelInstance!.encode();
       if (fileBytes != null) {
         final File targetFile = File(_selectedFilePath!);
-        
-        // مسح وحفظ مباشر آمن ومؤكد برمجياً لضمان الكتابة الفورية على الذاكرة
         if (await targetFile.exists()) {
           await targetFile.delete();
         }
@@ -286,10 +355,10 @@ class _MainScreenState extends State<MainScreen> {
           _gradedStudents += 1;
           _secretIdResult = "سيظهر هنا الرقم السري";
           _gradeController.clear();
-          _isScanningActive = false; // إعادة ضبط الحالة لضمان السلامة الميدانية
+          _isScanningActive = false;
         });
 
-        _showSnackBar("💾 تم رصد وحفظ الدرجة في ملف الكنترول بنجاح مذهل!");
+        _showSnackBar("💾 تم حفظ الدرجة في ملف الكنترول بنجاح!");
       }
     } catch (e) {
       _showSnackBar("❌ فشل كتابة الملف: $e");
@@ -298,6 +367,7 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  // ===================== أدوات مساعدة =====================
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
       context: context,
@@ -344,14 +414,7 @@ class _MainScreenState extends State<MainScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  @override
-  void dispose() {
-    _gradeController.dispose();
-    _cameraController.dispose();
-    _textRecognizer.close();
-    super.dispose();
-  }
-
+  // ===================== واجهة المستخدم =====================
   @override
   Widget build(BuildContext context) {
     Color appBarColor = widget.isDarkMode ? const Color(0xFF7B1FA2) : Colors.purple;
