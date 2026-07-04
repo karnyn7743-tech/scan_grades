@@ -1,12 +1,10 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:barcode/barcode.dart';
-import 'package:image/image.dart' as img;
+import 'package:http/http.dart' as http;
 
 class GenerateQRScreen extends StatefulWidget {
   const GenerateQRScreen({super.key});
@@ -168,7 +166,8 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
         final String id = student['id']!;
         final String secret = student['secret']!;
 
-        final Uint8List qrBytes = await _generateQRImage(secret, size: 200);
+        // توليد QR عبر خدمة ويب مجانية
+        final Uint8List qrBytes = await _generateQRCodeViaAPI(secret);
 
         final String filePath = '$qrFolderPath/$id.png';
         final File file = File(filePath);
@@ -190,18 +189,23 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     }
   }
 
-  // ===================== دالة توليد QR باستخدام barcode =====================
-  Future<Uint8List> _generateQRImage(String data, {int size = 200}) async {
-    // استخدام حزمة barcode
-    final Barcode qr = Barcode.qrCode();
-    // توليد صورة من النص
-    final img.Image? image = qr.toImage(data, width: size, height: size);
-    if (image == null) {
-      throw Exception('فشل في توليد QR Code');
+  // ===================== توليد QR عبر API (بدون حزم إضافية) =====================
+  Future<Uint8List> _generateQRCodeViaAPI(String data) async {
+    // استخدام خدمة QR Code API مجانية
+    final String url = 'https://api.qrserver.com/v1/create-qr-code/'
+        '?data=${Uri.encodeComponent(data)}'
+        '&size=300x300'
+        '&format=png'
+        '&bgcolor=ffffff'
+        '&color=000000';
+
+    final response = await http.get(Uri.parse(url));
+
+    if (response.statusCode == 200) {
+      return response.bodyBytes;
+    } else {
+      throw Exception('فشل في توليد QR Code (HTTP ${response.statusCode})');
     }
-    // ترميز إلى PNG
-    final Uint8List bytes = Uint8List.fromList(img.encodePng(image));
-    return bytes;
   }
 
   void _showMessage(String message) {
