@@ -8,6 +8,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _ImageRegions {
   final Uint8List? leftRegion;
@@ -306,6 +307,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
+  // ===================== دالة الحفظ المعدلة =====================
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
@@ -319,6 +321,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       bool targetFound = false;
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
+      // البحث عن الطالب في العمود D فقط
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
         var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
@@ -354,6 +357,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         return;
       }
 
+      // ترميز الملف
       final List<int>? fileBytesList = _excelInstance!.encode();
       if (fileBytesList == null) {
         _showSnackBar("❌ فشل في ترميز الملف");
@@ -362,28 +366,60 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       }
       final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
 
-      // الحفظ مباشرة في مجلد Downloads/درجات الطلاب
-      final String gradesDir = await _getGradesDirectoryPath();
-      final String fileName = File(_selectedFilePath!).path.split('/').last;
-      final String finalPath = '$gradesDir/$fileName';
+      // ===== الحفظ باستخدام SharedPreferences =====
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? savedPath = prefs.getString('excel_save_path');
 
-      final File finalFile = File(finalPath);
-      if (await finalFile.exists()) {
-        await finalFile.delete();
+      // إذا كان المسار مخزناً، تحقق من وجوده
+      if (savedPath != null) {
+        final File file = File(savedPath);
+        if (await file.parent.exists()) {
+          // المسار موجود، نكتب فوقه مباشرة
+          await file.writeAsBytes(fileBytes, flush: true);
+          if (await file.exists() && await file.length() > 0) {
+            setState(() {
+              _gradedStudents += 1;
+              _secretIdResult = "سيظهر هنا الرقم السري";
+              _gradeController.clear();
+              _isScanningActive = false;
+              _selectedFilePath = savedPath;
+            });
+            _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $savedPath");
+            setState(() { _isLoading = false; });
+            return;
+          }
+        }
       }
-      await finalFile.writeAsBytes(fileBytes, flush: true);
 
-      if (await finalFile.exists() && await finalFile.length() > 0) {
+      // إذا لم يكن هناك مسار مخزن أو فشل، اطلب من المستخدم اختيار المجلد
+      final String? pickedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'اختر مكان حفظ ملف الدرجات (مرة واحدة فقط)',
+        fileName: _fileName,
+        bytes: fileBytes,
+      );
+
+      if (pickedPath == null) {
+        _showSnackBar("❌ تم إلغاء الحفظ");
+        setState(() { _isLoading = false; });
+        return;
+      }
+
+      // حفظ المسار في SharedPreferences
+      await prefs.setString('excel_save_path', pickedPath);
+
+      // التحقق من نجاح الحفظ
+      final File savedFile = File(pickedPath);
+      if (await savedFile.exists() && await savedFile.length() > 0) {
         setState(() {
           _gradedStudents += 1;
           _secretIdResult = "سيظهر هنا الرقم السري";
           _gradeController.clear();
           _isScanningActive = false;
-          _selectedFilePath = finalPath;
+          _selectedFilePath = pickedPath;
         });
-        _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
+        _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $pickedPath");
       } else {
-        _showSnackBar("❌ فشل حفظ الملف!");
+        _showSnackBar("❌ فشل في حفظ الملف");
       }
 
     } catch (e) {
