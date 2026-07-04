@@ -9,6 +9,14 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
+// تعريف هيكل المناطق المقصوصة (خارج الـ State)
+class _ImageRegions {
+  final Uint8List? leftRegion;
+  final Uint8List? centerRegion;
+  final Uint8List? rightRegion;
+  _ImageRegions({this.leftRegion, this.centerRegion, this.rightRegion});
+}
+
 class GradeEntryScreen extends StatefulWidget {
   const GradeEntryScreen({super.key});
 
@@ -132,13 +140,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
   }
 
   // ===================== قص الصورة إلى مناطق =====================
-  class _ImageRegions {
-    final Uint8List? leftRegion;
-    final Uint8List? centerRegion;
-    final Uint8List? rightRegion;
-    _ImageRegions({this.leftRegion, this.centerRegion, this.rightRegion});
-  }
-
   Future<_ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
     try {
       final img.Image? fullImage = img.decodeImage(imageBytes);
@@ -188,7 +189,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
 
     final String qrValue = capture.barcodes.first.rawValue!;
 
-    // إيقاف الكاميرا مؤقتاً
     await _cameraController.stop();
 
     setState(() {
@@ -251,13 +251,12 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       _showSnackBar("ℹ️ لم يتم التعرف على الدرجة، أدخلها يدوياً");
     }
 
-    // إعادة تشغيل الكاميرا
     if (_isScanningActive) {
       await _cameraController.start();
     }
   }
 
-  // ===================== حفظ الدرجة في Excel (مع 3 محاولات) =====================
+  // ===================== حفظ الدرجة في Excel =====================
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
@@ -271,7 +270,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       bool targetFound = false;
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
-      // البحث عن الطالب
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
         var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
         var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
@@ -309,7 +307,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         return;
       }
 
-      // ترميز الملف
       final List<int>? fileBytesList = _excelInstance!.encode();
       if (fileBytesList == null) {
         _showSnackBar("❌ فشل في ترميز الملف");
@@ -318,7 +315,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       }
       final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
 
-      // === استراتيجية الحفظ (3 محاولات) ===
       String? finalPath;
       bool saved = false;
 
@@ -389,7 +385,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         }
       }
 
-      // عرض النتيجة
       if (saved && finalPath != null) {
         setState(() {
           _gradedStudents += 1;
@@ -458,7 +453,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // ===================== واجهة المستخدم =====================
   @override
   Widget build(BuildContext context) {
     Color appBarColor = Colors.lightBlue.shade300;
