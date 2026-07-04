@@ -20,10 +20,25 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
   List<Map<String, String>> _students = [];
   String _statusMessage = '';
 
+  // ===================== دالة المسار الموحد =====================
+  Future<String> _getGradesDirectoryPath() async {
+    final Directory? downloadsDir = await getDownloadsDirectory();
+    if (downloadsDir == null) {
+      throw Exception('لا يمكن الوصول إلى مجلد Downloads');
+    }
+    final String path = '${downloadsDir.path}/درجات الطلاب';
+    final Directory dir = Directory(path);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return path;
+  }
+
   @override
   void initState() {
     super.initState();
     _requestPermissions();
+    _loadLastExcelFile(); // محاولة تحميل آخر ملف مستخدم
   }
 
   Future<void> _requestPermissions() async {
@@ -31,6 +46,30 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     await Permission.manageExternalStorage.request();
   }
 
+  // ===================== تحميل آخر ملف مستخدم =====================
+  Future<void> _loadLastExcelFile() async {
+    try {
+      final String gradesDir = await _getGradesDirectoryPath();
+      final Directory dir = Directory(gradesDir);
+      if (!await dir.exists()) return;
+
+      // البحث عن أول ملف Excel في المجلد
+      final List<FileSystemEntity> files = await dir.list().toList();
+      for (var entity in files) {
+        if (entity is File && (entity.path.endsWith('.xlsx') || entity.path.endsWith('.xls'))) {
+          setState(() {
+            _excelPath = entity.path;
+          });
+          await _parseExcel();
+          break;
+        }
+      }
+    } catch (e) {
+      print('خطأ في تحميل آخر ملف: $e');
+    }
+  }
+
+  // ===================== اختيار ملف Excel ونسخه إلى المجلد الموحد =====================
   Future<void> _pickExcelFile() async {
     setState(() { _isLoading = true; });
 
@@ -41,8 +80,27 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
       );
 
       if (result != null && result.files.single.path != null) {
-        _excelPath = result.files.single.path!;
+        final String sourcePath = result.files.single.path!;
+        final String fileName = result.files.single.name;
+
+        // الحصول على المجلد الموحد
+        final String gradesDir = await _getGradesDirectoryPath();
+        final String targetPath = '$gradesDir/$fileName';
+
+        // حذف الملف القديم إذا كان موجوداً
+        if (await File(targetPath).exists()) {
+          await File(targetPath).delete();
+        }
+
+        // نسخ الملف إلى المجلد الموحد
+        await File(sourcePath).copy(targetPath);
+
+        setState(() {
+          _excelPath = targetPath;
+        });
+
         await _parseExcel();
+        _showMessage('✅ تم نسخ الملف إلى: $targetPath');
       } else {
         _showMessage('لم يتم اختيار ملف');
       }
@@ -54,6 +112,8 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
   }
 
   Future<void> _parseExcel() async {
+    if (_excelPath == null) return;
+
     try {
       final bytes = await File(_excelPath!).readAsBytes();
       final excel = px.Excel.decodeBytes(bytes);
@@ -144,6 +204,7 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     );
   }
 
+  // ===================== توليد QR Codes في المجلد الموحد =====================
   Future<void> _generateQRCodes() async {
     if (_students.isEmpty) {
       _showMessage('لا يوجد طلاب لتوليد QR Codes لهم');
@@ -153,10 +214,11 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     setState(() { _isLoading = true; });
 
     try {
-      final String dirPath = File(_excelPath!).parent.path;
-      final String qrFolderPath = '$dirPath/qr_pict';
-      final Directory qrFolder = Directory(qrFolderPath);
+      // استخدام المسار الموحد بدلاً من مسار الملف الأصلي
+      final String gradesDir = await _getGradesDirectoryPath();
+      final String qrFolderPath = '$gradesDir/qr_pict';
 
+      final Directory qrFolder = Directory(qrFolderPath);
       if (await qrFolder.exists()) {
         await qrFolder.delete(recursive: true);
       }
@@ -167,7 +229,7 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
         final String id = student['id']!;
         final String secret = student['secret']!;
 
-        // توليد QR باستخدام qrscan_plus (محلياً، بدون إنترنت)
+        // توليد QR باستخدام qrscan_plus
         final Uint8List qrBytes = await scanner.generateBarCode(secret);
 
         final String filePath = '$qrFolderPath/$id.png';
