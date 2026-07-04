@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
 import 'package:path_provider/path_provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:qr/qr.dart';
+import 'package:image/image.dart' as img;
 
 class GenerateQRScreen extends StatefulWidget {
   const GenerateQRScreen({super.key});
@@ -18,6 +21,17 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
   bool _isLoading = false;
   List<Map<String, String>> _students = [];
   String _statusMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+  }
+
+  Future<void> _requestPermissions() async {
+    await Permission.storage.request();
+    await Permission.manageExternalStorage.request();
+  }
 
   Future<void> _pickExcelFile() async {
     setState(() { _isLoading = true; });
@@ -49,7 +63,6 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
 
       _students.clear();
 
-      // قراءة البيانات من الصفوف (بدءاً من الصف الثاني)
       for (int row = 1; row < sheet.maxRows; row++) {
         final cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row)).value;
         final cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row)).value;
@@ -69,7 +82,6 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
         _statusMessage = 'تم تحميل ${_students.length} طالب';
       });
 
-      // عرض مربع حوار للتحقق من التكرار
       _showDuplicatesDialog();
 
     } catch (e) {
@@ -78,7 +90,6 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
   }
 
   void _showDuplicatesDialog() {
-    // فحص التكرار في العمود D
     final Map<String, List<String>> duplicateMap = {};
     final Map<String, String> secretToName = {};
 
@@ -144,7 +155,6 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     setState(() { _isLoading = true; });
 
     try {
-      // إنشاء مجلد qr_pict في نفس مسار ملف Excel
       final String dirPath = File(_excelPath!).parent.path;
       final String qrFolderPath = '$dirPath/qr_pict';
       final Directory qrFolder = Directory(qrFolderPath);
@@ -159,14 +169,11 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
         final String id = student['id']!;
         final String secret = student['secret']!;
 
-        // توليد QR Code باستخدام qr_flutter
-        final qrImage = await _generateQRImage(secret, size: 200);
+        final Uint8List qrBytes = await _generateQRImage(secret, size: 200);
 
-        // حفظ الصورة في المجلد
-        final String fileName = '$id.png';
-        final String filePath = '$qrFolderPath/$fileName';
+        final String filePath = '$qrFolderPath/$id.png';
         final File file = File(filePath);
-        await file.writeAsBytes(qrImage);
+        await file.writeAsBytes(qrBytes);
 
         count++;
       }
@@ -185,123 +192,11 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
   }
 
   Future<Uint8List> _generateQRImage(String data, {int size = 200}) async {
-    // استخدام qr_flutter لتوليد QR كـ Widget ثم تحويله إلى صورة
-    final widget = QrImageView(
+    // توليد QR Code باستخدام حزمة qr
+    final qrCode = QrCode.fromData(
       data: data,
-      version: QrVersions.auto,
-      size: size.toDouble(),
-      backgroundColor: Colors.white,
+      errorCorrectLevel: QrErrorCorrectLevel.M,
     );
-
-    // تحويل الـ Widget إلى صورة (نحتاج إلى مكتبة إضافية)
-    // ولكن الأسهل هو استخدام حزمة qr_code_generator أو حفظها كـ SVG ثم تحويلها
-    // سنستخدم طريقة بديلة: حفظ كـ SVG أو استخدام qr_code_generator
-
-    // مؤقتاً، سنستخدم طريقة بسيطة: حفظ QR كـ SVG (يعمل على جميع المنصات)
-    // ولكن للتبسيط، سأستخدم حزمة qr_code_generator
-    // لكن بما أن لدينا qr_flutter بالفعل، سأستخدمها مع مكتبة image لتحويل الـ widget إلى صورة
-
-    // هذه الطريقة معقدة، لذا أقترح استخدام حزمة "qr_code_generator" بدلاً من ذلك
-    // ولكن للسرعة، سأستخدم هذه الطريقة البديلة:
-
-    // استخدام "qr_code_generator" يتطلب إضافة المكتبة
-    // لكن سنستخدم حزمة "qr_code" مع "image" لتحويل النص إلى QR
-
-    // سأكتب دالة بسيطة باستخدام حزمة "qr" و "image"
-    // نضيف حزمة "qr" و "image" في pubspec.yaml
-
-    // لهذا المثال، سأفترض أننا سنستخدم حزمة "qr_code_generator" لتوليد الصورة مباشرة
-    // أضف في pubspec.yaml: qr_code_generator: ^0.6.0
-
-    // تطبيق عملي سريع:
-    // نستخدم qr_flutter لتصدير الـ QR كـ Image ثم نأخذ البايتات
-    // لكن هذا معقد، لذا سأستخدم حزمة "qr" مع "image" لرسم QR يدوياً
-
-    // نظراً للتعقيد، سأقدم حلاً مختصراً: سنستخدم حزمة "qr_code_generator" لتوليد الصورة مباشرة
-    // ولكن لتجنب إضافة حزمة جديدة، سأستخدم "qr_flutter" مع "screenshot" لالتقاط الـ QR كصورة
-    // لكن هذا أيضاً معقد.
-
-    // الحل الأسهل: استخدام حزمة "qr_code_generator" (التي تعتمد على canvas)
-    // وإليك الكود:
-
-    final qrData = await QrCodeGenerator.generateQrCode(data);
-    // لكن هذه الدالة غير موجودة. سأكتب الدالة الصحيحة
-
-    // بما أننا نريد التبسيط، سأستخدم حزمة "qr_code_generator" كما يلي:
-    // import 'package:qr_code_generator/qr_code_generator.dart';
-    // Uint8List qrBytes = await QrCodeGenerator.generateQrCode('data');
-    // return qrBytes;
-
-    // ولكن لأن هذه الحزمة قد لا تكون متوفرة، سأستخدم حزمة "qr_flutter" مع "screenshot" لحلقة بديلة.
-    // لكن في الوقت الحالي، سأكتب كوداً يظهر رسالة بأن توليد QR يحتاج إلى حزمة إضافية.
-
-    // === الحل العملي ===
-    // نستخدم حزمة "qr_code_generator" (https://pub.dev/packages/qr_code_generator)
-    // أضفها إلى pubspec.yaml
-    // ثم استخدم الكود التالي:
-
-    // import 'package:qr_code_generator/qr_code_generator.dart';
-    // final Uint8List qrBytes = await QrCodeGenerator.generateQrCode(data);
-    // return qrBytes;
-
-    // سأفترض أنك ستضيف هذه الحزمة. وإلا، استخدم حزمة "qr" مع "image" لرسم QR يدوياً.
-
-    // === تنبيه ===
-    // بما أن هذا خارج نطاق هذه الشاشة، سأضع كوداً توضيحياً وسأشير إلى الحزمة المطلوبة في التعليقات.
-
-    // حالياً سأعيد Uint8List فارغاً مع رسالة خطأ.
-    // لكن الأفضل هو تنفيذ الحل النهائي:
-    // 1. أضف حزمة qr_code_generator في pubspec.yaml
-    // 2. استخدم الكود التالي
-
-    // سأقدم كوداً جاهزاً مع الحزمة المطلوبة في الشرح.
-    // في الوقت الحالي، سأعيد بايتات فارغة مع رسالة.
-
-    // بدلاً من التعقيد، سأستخدم هذا الحل البسيط (يعمل في Flutter):
-    // استخدام qr_flutter مع حزمة screenshot لالتقاط الصورة.
-
-    // سأكتب دالة تعمل بشكل مباشر:
-
-    // لكن هذا سيطول. سأكتفي بإرجاع بايتات الصورة عبر حزمة "qr_code_generator".
-
-    // === الكود العملي ===
-    // إضافة الحزمة: qr_code_generator: ^0.6.0
-    // ثم استخدم:
-
-    // import 'package:qr_code_generator/qr_code_generator.dart';
-    // final Uint8List qrBytes = await QrCodeGenerator.generateQrCode(
-    //   data: data,
-    //   size: size,
-    //   foregroundColor: Colors.black,
-    //   backgroundColor: Colors.white,
-    // );
-    // return qrBytes;
-
-    // نظراً لأنني لا أستطيع تنفيذ هذا هنا، سأكتب الكود النهائي بالشكل الصحيح في الملف النهائي.
-
-    // سأضع حلاً بديلاً يعتمد على حزمة "qr" و "image" (وهي متوفرة بالفعل).
-
-    // سأستخدم حزمة "qr" (https://pub.dev/packages/qr) مع "image" لرسم QR يدوياً.
-    // هذا يتطلب كتابة دالة لرسم الـ QR، لكنه يعمل بدون حزم إضافية.
-
-    // == الحل النهائي (الموصى به) ==
-    // أضف حزمة "qr" في pubspec.yaml
-    // ثم استخدم الكود التالي:
-
-    // import 'package:qr/qr.dart';
-    // import 'package:image/image.dart' as img;
-
-    // final qrCode = QrCode.fromData(data: data, errorCorrectLevel: QrErrorCorrectLevel.M);
-    // final qrImage = QrImage(qrCode, size: size, version: 5);
-    // final bytes = qrImage.toImage().toPngBytes();
-    // return bytes;
-
-    // سأكتب هذا الكود مباشرة في الدالة:
-
-    import 'package:qr/qr.dart';
-    import 'package:image/image.dart' as img;
-
-    final qrCode = QrCode.fromData(data: data, errorCorrectLevel: QrErrorCorrectLevel.M);
     final qrImage = QrImage(qrCode, size: size, version: 5);
     final image = qrImage.toImage();
     final bytes = img.encodePng(image);
