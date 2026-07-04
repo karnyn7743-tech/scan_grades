@@ -38,7 +38,7 @@ dependencies:
   qr: ^3.0.0       
 
   # ... باقي الحزم ...
-  qr_code_generator: ^0.6.0   # أضف هذا السطر
+  qr_code_generator: ^1.0.3   # أضف هذا السطر
 
   # لعرض QR Codes في الواجهة (اختياري) 
   qr_flutter: ^4.1.0  
