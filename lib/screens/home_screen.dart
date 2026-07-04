@@ -4,18 +4,30 @@ import 'scan_qr_screen.dart';
 import 'grade_entry_screen.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  final VoidCallback onThemeToggle;
+
+  const HomeScreen({super.key, required this.onThemeToggle});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('نظام إدارة الدرجات'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
         centerTitle: true,
+        actions: [
+          // ===== زر تبديل الوضع =====
+          IconButton(
+            icon: Icon(
+              isDark ? Icons.light_mode : Icons.dark_mode,
+              color: Colors.white,
+            ),
+            onPressed: onThemeToggle,
+            tooltip: isDark ? 'الوضع النهاري' : 'الوضع الليلي',
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
