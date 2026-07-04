@@ -48,13 +48,13 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   px.Excel? _excelInstance;
 
-  // ===================== دالة المسار العام لمجلد Downloads =====================
+  // ===================== دالة المسار العام لمجلد Downloads (الصحيحة) =====================
   Future<String> _getGradesDirectoryPath() async {
-    final Directory? downloadDir = await getDownloadDirectory();
-    if (downloadDir == null) {
-      throw Exception('لا يمكن الوصول إلى مجلد Download');
+    final Directory? downloadsDir = await getDownloadsDirectory(); // ✅ مع حرف s
+    if (downloadsDir == null) {
+      throw Exception('لا يمكن الوصول إلى مجلد Downloads');
     }
-    final String path = '${downloadDir.path}/درجات الطلاب';
+    final String path = '${downloadsDir.path}/درجات الطلاب';
     final Directory dir = Directory(path);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -307,137 +307,122 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== دالة الحفظ المعدلة =====================
+  // ===================== دالة الحفظ المعدلة (الصحيحة) =====================
   Future<void> _saveGradeToExcel() async {
-  if (_excelInstance == null || _selectedFilePath == null) {
-    _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
-    return;
-  }
+    if (_excelInstance == null || _selectedFilePath == null) {
+      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
+      return;
+    }
 
-  setState(() { _isLoading = true; });
+    setState(() { _isLoading = true; });
 
-  try {
-    var sheet = _excelInstance!.tables.values.first;
-    bool targetFound = false;
-    int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
+    try {
+      var sheet = _excelInstance!.tables.values.first;
+      bool targetFound = false;
+      int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
-    // ===== البحث عن الطالب في العمود D =====
-    for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-      var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+      for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
+        var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
-      if (cellD.toString().trim() == _secretIdResult.trim()) {
-        targetFound = true;
+        if (cellD.toString().trim() == _secretIdResult.trim()) {
+          targetFound = true;
 
-        var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
-          columnIndex: subjectColumnIndex,
-          rowIndex: rowIndex
-        )).value;
+          var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
+            columnIndex: subjectColumnIndex,
+            rowIndex: rowIndex
+          )).value;
 
-        if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
-          setState(() { _isLoading = false; });
-          _showDialogAlert(
-            title: "⚠️ تنبيه: رصد مسبق!",
-            message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
-            shouldCloseCamera: false,
-          );
-          return;
+          if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
+            setState(() { _isLoading = false; });
+            _showDialogAlert(
+              title: "⚠️ تنبيه: رصد مسبق!",
+              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
+              shouldCloseCamera: false,
+            );
+            return;
+          }
+
+          sheet.cell(px.CellIndex.indexByColumnRow(
+            columnIndex: subjectColumnIndex,
+            rowIndex: rowIndex
+          )).value = px.TextCellValue(_gradeController.text);
+          break;
         }
-
-        sheet.cell(px.CellIndex.indexByColumnRow(
-          columnIndex: subjectColumnIndex,
-          rowIndex: rowIndex
-        )).value = px.TextCellValue(_gradeController.text);
-        break;
       }
-    }
 
-    if (!targetFound) {
-      _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
-      setState(() { _isLoading = false; });
-      return;
-    }
-
-    // ===== ترميز الملف =====
-    final List<int>? fileBytesList = _excelInstance!.encode();
-    if (fileBytesList == null) {
-      _showSnackBar("❌ فشل في ترميز الملف");
-      setState(() { _isLoading = false; });
-      return;
-    }
-    final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
-
-    // ===== عرض المسار للمستخدم مع تأكيد قوي =====
-    final String currentPath = _selectedFilePath!;
-
-    // نعرض المسار بشكل واضح في مربع حوار
-    final bool confirmSave = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('📁 تأكيد الحفظ'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('سيتم حفظ الدرجات في الملف التالي:'),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                currentPath,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text('هل هذا هو الملف الذي تريد التعديل عليه؟'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('نعم، احفظ'),
-          ),
-        ],
-      ),
-    ) ?? false;
-
-    if (!confirmSave) {
-      _showSnackBar("❌ تم إلغاء الحفظ");
-      setState(() { _isLoading = false; });
-      return;
-    }
-
-    // ===== الكتابة على الملف =====
-    final File targetFile = File(currentPath);
-
-    // نسخ احتياطي مؤقت (للتأكد من أن الملف مكتوب فعلاً)
-    if (await targetFile.exists()) {
-      // نقرأ الملف الحالي للتأكد من أنه قابل للكتابة
-      try {
-        await targetFile.writeAsBytes(fileBytes, flush: true);
-      } catch (e) {
-        _showSnackBar("❌ خطأ في الكتابة: $e");
+      if (!targetFound) {
+        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
         setState(() { _isLoading = false; });
         return;
       }
-    } else {
-      _showSnackBar("❌ الملف غير موجود في المسار المحدد!");
-      setState(() { _isLoading = false; });
-      return;
-    }
 
-    // ===== التحقق من النجاح =====
-    if (await targetFile.exists() && await targetFile.length() > 0) {
-      // نعيد قراءة الملف للتأكد من أن البيانات كتبت
-      final writtenBytes = await targetFile.readAsBytes();
-      if (writtenBytes.length == fileBytes.length) {
+      final List<int>? fileBytesList = _excelInstance!.encode();
+      if (fileBytesList == null) {
+        _showSnackBar("❌ فشل في ترميز الملف");
+        setState(() { _isLoading = false; });
+        return;
+      }
+      final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
+
+      // ===== عرض المسار وتأكيد الحفظ =====
+      final String currentPath = _selectedFilePath!;
+
+      final bool confirmSave = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('📁 تأكيد الحفظ'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('سيتم حفظ الدرجات في الملف التالي:'),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  currentPath,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('هل هذا هو الملف الذي تريد التعديل عليه؟'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('نعم، احفظ'),
+            ),
+          ],
+        ),
+      ) ?? false;
+
+      if (!confirmSave) {
+        _showSnackBar("❌ تم إلغاء الحفظ");
+        setState(() { _isLoading = false; });
+        return;
+      }
+
+      // ===== الكتابة على الملف =====
+      final File targetFile = File(currentPath);
+      if (await targetFile.exists()) {
+        await targetFile.writeAsBytes(fileBytes, flush: true);
+      } else {
+        _showSnackBar("❌ الملف غير موجود في المسار المحدد!");
+        setState(() { _isLoading = false; });
+        return;
+      }
+
+      // ===== التحقق من النجاح =====
+      if (await targetFile.exists() && await targetFile.length() > 0) {
         setState(() {
           _gradedStudents += 1;
           _secretIdResult = "سيظهر هنا الرقم السري";
@@ -446,20 +431,17 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         });
         _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $currentPath");
       } else {
-        _showSnackBar("⚠️ تم الحفظ ولكن حجم الملف غير متطابق!");
+        _showSnackBar("❌ فشل حفظ الملف!");
       }
-    } else {
-      _showSnackBar("❌ فشل حفظ الملف!");
-    }
 
-  } catch (e) {
-    _showSnackBar("❌ خطأ في الحفظ: $e");
-    print('خطأ الحفظ: $e');
-  } finally {
-    setState(() { _isLoading = false; });
+    } catch (e) {
+      _showSnackBar("❌ خطأ في الحفظ: $e");
+      print('خطأ الحفظ: $e');
+    } finally {
+      setState(() { _isLoading = false; });
+    }
   }
-}
-      
+
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
       context: context,
