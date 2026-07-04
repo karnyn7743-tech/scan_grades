@@ -32,17 +32,14 @@ dependencies:
   image: ^4.3.0
   
   # اختيار مسار الملفات
-  path_provider: ^2.1.3
- 
-  # لتوليد QR Codes
-  qr: ^3.0.0       
+  path_provider: ^2.1.3      
 
   # ... باقي الحزم ...
-  qr_code_generator: ^1.0.3   # أضف هذا السطر
+  qr_code_generator: ^1.0.3   # أضف هذا السط
 
-  # لعرض QR Codes في الواجهة (اختياري) 
-  qr_flutter: ^4.1.0  
-  
+  # توليد QR Codes 
+  barcode: ^2.2.0      
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
