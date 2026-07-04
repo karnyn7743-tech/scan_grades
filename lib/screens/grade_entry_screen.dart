@@ -8,64 +8,15 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const StugraScanApp());
-}
 
-// ===================== هيكل المناطق المقصوصة =====================
-// تم نقله إلى الخارج (خارج الـ Class)
-class ImageRegions {
-  final Uint8List? leftRegion;
-  final Uint8List? centerRegion;
-  final Uint8List? rightRegion;
-
-  ImageRegions({this.leftRegion, this.centerRegion, this.rightRegion});
-}
-
-// ===================== التطبيق الرئيسي =====================
-class StugraScanApp extends StatefulWidget {
-  const StugraScanApp({super.key});
+class GradeEntryScreen extends StatefulWidget {
+  const GradeEntryScreen({super.key});
 
   @override
-  State<StugraScanApp> createState() => _StugraScanAppState();
+  State<GradeEntryScreen> createState() => _GradeEntryScreenState();
 }
 
-class _StugraScanAppState extends State<StugraScanApp> {
-  bool _isDarkMode = true;
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'StugraScan',
-      debugShowCheckedModeBanner: false,
-      theme: _isDarkMode ? ThemeData.dark() : ThemeData.light(),
-      home: MainScreen(
-        isDarkMode: _isDarkMode,
-        onThemeChanged: (bool newTheme) {
-          setState(() { _isDarkMode = newTheme; });
-        },
-      ),
-    );
-  }
-}
-
-// ===================== الشاشة الرئيسية =====================
-class MainScreen extends StatefulWidget {
-  final bool isDarkMode;
-  final ValueChanged<bool> onThemeChanged;
-
-  const MainScreen({
-    super.key,
-    required this.isDarkMode,
-    required this.onThemeChanged,
-  });
-
-  @override
-  State<MainScreen> createState() => _MainScreenState();
-}
-
-class _MainScreenState extends State<MainScreen> {
+class _GradeEntryScreenState extends State<GradeEntryScreen> {
   // ===================== متغيرات الحالة =====================
   String _fileName = "لم يتم اختيار ملف الكنترول بعد";
   String? _selectedFilePath;
@@ -181,7 +132,14 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   // ===================== قص الصورة إلى مناطق =====================
-  Future<ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
+  class _ImageRegions {
+    final Uint8List? leftRegion;
+    final Uint8List? centerRegion;
+    final Uint8List? rightRegion;
+    _ImageRegions({this.leftRegion, this.centerRegion, this.rightRegion});
+  }
+
+  Future<_ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
     try {
       final img.Image? fullImage = img.decodeImage(imageBytes);
       if (fullImage == null) return null;
@@ -190,12 +148,11 @@ class _MainScreenState extends State<MainScreen> {
       final int height = fullImage.height;
       final int regionWidth = width ~/ 3;
 
-      // تقسيم الصورة إلى 3 مناطق أفقية
       final leftRegionImg = img.copyCrop(fullImage, x: 0, y: 0, width: regionWidth, height: height);
       final centerRegionImg = img.copyCrop(fullImage, x: regionWidth, y: 0, width: regionWidth, height: height);
       final rightRegionImg = img.copyCrop(fullImage, x: regionWidth * 2, y: 0, width: regionWidth, height: height);
 
-      return ImageRegions(
+      return _ImageRegions(
         leftRegion: Uint8List.fromList(img.encodePng(leftRegionImg)),
         centerRegion: Uint8List.fromList(img.encodePng(centerRegionImg)),
         rightRegion: Uint8List.fromList(img.encodePng(rightRegionImg)),
@@ -206,10 +163,8 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // ===================== التعرف على النص (محسّن) =====================
   Future<String> _recognizeTextFromBytes(Uint8List bytes) async {
     try {
-      // حفظ الصورة مؤقتاً
       final tempDir = await Directory.systemTemp.createTemp('ocr_');
       final tempFile = File('${tempDir.path}/image.png');
       await tempFile.writeAsBytes(bytes);
@@ -217,7 +172,6 @@ class _MainScreenState extends State<MainScreen> {
       final inputImage = InputImage.fromFile(tempFile);
       final RecognizedText recognized = await _textRecognizer.processImage(inputImage);
 
-      // حذف الملف المؤقت
       await tempFile.delete();
       await tempDir.delete();
 
@@ -247,7 +201,6 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // قص الصورة إلى 3 مناطق
     final regions = await _cropImageRegions(capture.image!, capture.size);
     if (regions == null) {
       _showSnackBar("⚠️ فشل في قص الصورة");
@@ -304,166 +257,160 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // ===================== حفظ الدرجة في Excel =====================
+  // ===================== حفظ الدرجة في Excel (مع 3 محاولات) =====================
   Future<void> _saveGradeToExcel() async {
-  if (_excelInstance == null || _selectedFilePath == null) {
-    _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
-    return;
-  }
-
-  setState(() { _isLoading = true; });
-
-  try {
-    var sheet = _excelInstance!.tables.values.first;
-    bool targetFound = false;
-    int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
-
-    // البحث عن الطالب
-    for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-      var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
-      var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
-
-      if (cellA.toString().trim() == _secretIdResult.trim() ||
-          cellB.toString().trim() == _secretIdResult.trim()) {
-        targetFound = true;
-
-        var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
-          columnIndex: subjectColumnIndex,
-          rowIndex: rowIndex
-        )).value;
-
-        if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
-          setState(() { _isLoading = false; });
-          _showDialogAlert(
-            title: "⚠️ تنبيه: رصد مسبق!",
-            message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
-            shouldCloseCamera: false,
-          );
-          return;
-        }
-
-        sheet.cell(px.CellIndex.indexByColumnRow(
-          columnIndex: subjectColumnIndex,
-          rowIndex: rowIndex
-        )).value = px.TextCellValue(_gradeController.text);
-        break;
-      }
-    }
-
-    if (!targetFound) {
-      _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
-      setState(() { _isLoading = false; });
+    if (_excelInstance == null || _selectedFilePath == null) {
+      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
       return;
     }
 
-    // ترميز الملف
-    final List<int>? fileBytesList = _excelInstance!.encode();
-    if (fileBytesList == null) {
-      _showSnackBar("❌ فشل في ترميز الملف");
-      setState(() { _isLoading = false; });
-      return;
-    }
-    final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
+    setState(() { _isLoading = true; });
 
-    // استراتيجية الحفظ: محاولة 1 (حفظ في مجلد Downloads)
-    String? finalPath;
-    bool saved = false;
-
-    // محاولة 1: حفظ في مجلد Downloads العام باستخدام path_provider
     try {
-      final Directory? downloadsDir = await getDownloadsDirectory();
-      if (downloadsDir != null) {
-        final String gradesFolder = '${downloadsDir.path}/درجات الطلاب';
-        final Directory folder = Directory(gradesFolder);
-        if (!await folder.exists()) {
-          await folder.create(recursive: true);
-        }
+      var sheet = _excelInstance!.tables.values.first;
+      bool targetFound = false;
+      int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
-        final String fileName = File(_selectedFilePath!).path.split('/').last;
-        final String path = '$gradesFolder/$fileName';
+      // البحث عن الطالب
+      for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
+        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
+        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
-        final File file = File(path);
-        if (await file.exists()) {
-          await file.delete();
-        }
-        await file.writeAsBytes(fileBytes, flush: true);
+        if (cellA.toString().trim() == _secretIdResult.trim() ||
+            cellB.toString().trim() == _secretIdResult.trim()) {
+          targetFound = true;
 
-        if (await file.exists() && await file.length() > 0) {
-          finalPath = path;
-          saved = true;
+          var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
+            columnIndex: subjectColumnIndex,
+            rowIndex: rowIndex
+          )).value;
+
+          if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
+            setState(() { _isLoading = false; });
+            _showDialogAlert(
+              title: "⚠️ تنبيه: رصد مسبق!",
+              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
+              shouldCloseCamera: false,
+            );
+            return;
+          }
+
+          sheet.cell(px.CellIndex.indexByColumnRow(
+            columnIndex: subjectColumnIndex,
+            rowIndex: rowIndex
+          )).value = px.TextCellValue(_gradeController.text);
+          break;
         }
       }
-    } catch (e) {
-      print('محاولة الحفظ في Downloads فشلت: $e');
-    }
 
-    // محاولة 2: إذا فشلت المحاولة 1، استخدم FilePicker لحفظ الملف
-    if (!saved) {
+      if (!targetFound) {
+        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
+        setState(() { _isLoading = false; });
+        return;
+      }
+
+      // ترميز الملف
+      final List<int>? fileBytesList = _excelInstance!.encode();
+      if (fileBytesList == null) {
+        _showSnackBar("❌ فشل في ترميز الملف");
+        setState(() { _isLoading = false; });
+        return;
+      }
+      final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
+
+      // === استراتيجية الحفظ (3 محاولات) ===
+      String? finalPath;
+      bool saved = false;
+
+      // محاولة 1: حفظ في مجلد Downloads العام
       try {
-        final String? pickedPath = await FilePicker.platform.saveFile(
-          dialogTitle: 'اختر مكان حفظ ملف الدرجات',
-          fileName: File(_selectedFilePath!).path.split('/').last,
-          bytes: fileBytes,
-        );
+        final Directory? downloadsDir = await getDownloadsDirectory();
+        if (downloadsDir != null) {
+          final String gradesFolder = '${downloadsDir.path}/درجات الطلاب';
+          final Directory folder = Directory(gradesFolder);
+          if (!await folder.exists()) {
+            await folder.create(recursive: true);
+          }
 
-        if (pickedPath != null) {
-          final File file = File(pickedPath);
+          final String fileName = File(_selectedFilePath!).path.split('/').last;
+          final String path = '$gradesFolder/$fileName';
+
+          final File file = File(path);
+          if (await file.exists()) await file.delete();
+          await file.writeAsBytes(fileBytes, flush: true);
+
           if (await file.exists() && await file.length() > 0) {
-            finalPath = pickedPath;
+            finalPath = path;
             saved = true;
           }
-        } else {
-          _showSnackBar("ℹ️ تم إلغاء اختيار مكان الحفظ");
         }
       } catch (e) {
-        print('محاولة الحفظ باستخدام FilePicker فشلت: $e');
+        print('محاولة الحفظ في Downloads فشلت: $e');
       }
-    }
 
-    // محاولة 3: حفظ في مجلد التطبيق كحل أخير
-    if (!saved) {
-      try {
-        final Directory appDir = await getApplicationDocumentsDirectory();
-        final String fileName = File(_selectedFilePath!).path.split('/').last;
-        final String path = '${appDir.path}/$fileName';
+      // محاولة 2: استخدام FilePicker
+      if (!saved) {
+        try {
+          final String? pickedPath = await FilePicker.platform.saveFile(
+            dialogTitle: 'اختر مكان حفظ ملف الدرجات',
+            fileName: File(_selectedFilePath!).path.split('/').last,
+            bytes: fileBytes,
+          );
 
-        final File file = File(path);
-        if (await file.exists()) {
-          await file.delete();
+          if (pickedPath != null) {
+            final File file = File(pickedPath);
+            if (await file.exists() && await file.length() > 0) {
+              finalPath = pickedPath;
+              saved = true;
+            }
+          }
+        } catch (e) {
+          print('محاولة FilePicker فشلت: $e');
         }
-        await file.writeAsBytes(fileBytes, flush: true);
-
-        if (await file.exists() && await file.length() > 0) {
-          finalPath = path;
-          saved = true;
-        }
-      } catch (e) {
-        print('محاولة الحفظ في مجلد التطبيق فشلت: $e');
       }
-    }
 
-    // عرض النتيجة
-    if (saved && finalPath != null) {
-      setState(() {
-        _gradedStudents += 1;
-        _secretIdResult = "سيظهر هنا الرقم السري";
-        _gradeController.clear();
-        _isScanningActive = false;
-        _selectedFilePath = finalPath;
-      });
-      _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
-    } else {
-      _showSnackBar("❌ فشل حفظ الملف في جميع المحاولات!");
-    }
+      // محاولة 3: حفظ في مجلد التطبيق
+      if (!saved) {
+        try {
+          final Directory appDir = await getApplicationDocumentsDirectory();
+          final String fileName = File(_selectedFilePath!).path.split('/').last;
+          final String path = '${appDir.path}/$fileName';
 
-  } catch (e) {
-    _showSnackBar("❌ خطأ في الحفظ: $e");
-    print('خطأ الحفظ: $e');
-  } finally {
-    setState(() { _isLoading = false; });
+          final File file = File(path);
+          if (await file.exists()) await file.delete();
+          await file.writeAsBytes(fileBytes, flush: true);
+
+          if (await file.exists() && await file.length() > 0) {
+            finalPath = path;
+            saved = true;
+          }
+        } catch (e) {
+          print('محاولة مجلد التطبيق فشلت: $e');
+        }
+      }
+
+      // عرض النتيجة
+      if (saved && finalPath != null) {
+        setState(() {
+          _gradedStudents += 1;
+          _secretIdResult = "سيظهر هنا الرقم السري";
+          _gradeController.clear();
+          _isScanningActive = false;
+          _selectedFilePath = finalPath;
+        });
+        _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
+      } else {
+        _showSnackBar("❌ فشل حفظ الملف في جميع المحاولات!");
+      }
+
+    } catch (e) {
+      _showSnackBar("❌ خطأ في الحفظ: $e");
+      print('خطأ الحفظ: $e');
+    } finally {
+      setState(() { _isLoading = false; });
+    }
   }
-}
-        
+
   // ===================== أدوات مساعدة =====================
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
@@ -514,19 +461,20 @@ class _MainScreenState extends State<MainScreen> {
   // ===================== واجهة المستخدم =====================
   @override
   Widget build(BuildContext context) {
-    Color appBarColor = widget.isDarkMode ? const Color(0xFF7B1FA2) : Colors.purple;
-    Color backgroundColor = widget.isDarkMode ? const Color(0xFF4A148C) : Colors.purple.shade50;
-    Color fieldColor = widget.isDarkMode ? const Color(0xFF212121) : Colors.white;
-    Color textColor = widget.isDarkMode ? Colors.white : Colors.black87;
+    Color appBarColor = Colors.lightBlue.shade300;
+    Color backgroundColor = Colors.lightBlue.shade50;
+    Color fieldColor = Colors.white;
+    Color textColor = Colors.black87;
 
     bool isSaveButtonEnabled = _secretIdResult != "سيظهر هنا الرقم السري" && !_isLoading;
 
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
-        title: const Text("برنامج إسقاط الدرجات بالأكواد"),
+        title: const Text("إدخال الدرجات من أوراق الإجابة"),
         centerTitle: true,
         backgroundColor: appBarColor,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
@@ -535,10 +483,6 @@ class _MainScreenState extends State<MainScreen> {
               if (_isScanningActive) await _cameraController.toggleTorch();
             },
           ),
-          IconButton(
-            icon: Icon(widget.isDarkMode ? Icons.light_mode : Icons.dark_mode),
-            onPressed: () => widget.onThemeChanged(!widget.isDarkMode),
-          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -546,7 +490,10 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           children: [
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size.fromHeight(50)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                minimumSize: const Size.fromHeight(50),
+              ),
               onPressed: _isLoading ? null : _pickAndParseExcel,
               child: _isLoading
                   ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
@@ -556,36 +503,67 @@ class _MainScreenState extends State<MainScreen> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withOpacity(0.3))),
+              decoration: BoxDecoration(
+                color: fieldColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withOpacity(0.3)),
+              ),
               child: Text(_fileName, style: TextStyle(color: textColor), textAlign: TextAlign.center),
             ),
             const SizedBox(height: 12),
 
-            Align(alignment: Alignment.centerRight, child: Text("اختر المادة :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold))),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text("اختر المادة :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+            ),
             const SizedBox(height: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withOpacity(0.3))),
+              decoration: BoxDecoration(
+                color: fieldColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withOpacity(0.3)),
+              ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
                   dropdownColor: fieldColor,
                   isExpanded: true,
                   hint: const Text("انقر لتحديد المادة المفتوحة ورصدها", style: TextStyle(color: Colors.grey)),
                   value: _selectedSubject,
-                  items: _subjects.isEmpty ? null : _subjects.map((sub) => DropdownMenuItem(value: sub, child: Text(sub, style: TextStyle(color: textColor)))).toList(),
-                  onChanged: (val) { setState(() { _selectedSubject = val; }); },
+                  items: _subjects.isEmpty
+                      ? null
+                      : _subjects.map((sub) {
+                          return DropdownMenuItem(
+                            value: sub,
+                            child: Text(sub, style: TextStyle(color: textColor)),
+                          );
+                        }).toList(),
+                  onChanged: (val) {
+                    setState(() { _selectedSubject = val; });
+                  },
                 ),
               ),
             ),
             const SizedBox(height: 12),
 
-            Align(alignment: Alignment.centerRight, child: Text("الرقم السري :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold))),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text("الرقم السري :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+            ),
             const SizedBox(height: 4),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withOpacity(0.3))),
-              child: Text(_secretIdResult, style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+              decoration: BoxDecoration(
+                color: fieldColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withOpacity(0.3)),
+              ),
+              child: Text(
+                _secretIdResult,
+                style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
             ),
             const SizedBox(height: 12),
 
@@ -605,8 +583,13 @@ class _MainScreenState extends State<MainScreen> {
                         decoration: InputDecoration(
                           fillColor: fieldColor,
                           filled: true,
-                          enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)), borderRadius: BorderRadius.circular(8)),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                       ),
                     ],
@@ -622,8 +605,16 @@ class _MainScreenState extends State<MainScreen> {
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(color: fieldColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade500)),
-                        child: Text("$_gradedStudents / $_totalStudents", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16), textAlign: TextAlign.center),
+                        decoration: BoxDecoration(
+                          color: fieldColor,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade500),
+                        ),
+                        child: Text(
+                          "$_gradedStudents / $_totalStudents",
+                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     ],
                   ),
@@ -633,25 +624,41 @@ class _MainScreenState extends State<MainScreen> {
             const SizedBox(height: 20),
 
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: _isScanningActive ? Colors.red : Colors.green, minimumSize: const Size.fromHeight(50)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isScanningActive ? Colors.red : Colors.green,
+                minimumSize: const Size.fromHeight(50),
+              ),
               onPressed: _toggleScanning,
-              child: Text(_isScanningActive ? "إيقاف المسح مؤقتاً" : "ابدأ المسح بالكاميرا", style: const TextStyle(fontSize: 18, color: Colors.white)),
+              child: Text(
+                _isScanningActive ? "إيقاف المسح مؤقتاً" : "ابدأ المسح بالكاميرا",
+                style: const TextStyle(fontSize: 18, color: Colors.white),
+              ),
             ),
             const SizedBox(height: 8),
 
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, minimumSize: const Size.fromHeight(50)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                minimumSize: const Size.fromHeight(50),
+              ),
               onPressed: isSaveButtonEnabled ? _saveGradeToExcel : null,
               child: _isLoading
                   ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
-                  : const Text("تأكيد وحفظ الدرجة في الملف الأصلي", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                  : const Text(
+                      "تأكيد وحفظ الدرجة في الملف الأصلي",
+                      style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
             ),
             const SizedBox(height: 20),
 
             Container(
               width: double.infinity,
               height: 250,
-              decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12), border: Border.all(color: _isScanningActive ? Colors.greenAccent : Colors.grey, width: 2)),
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _isScanningActive ? Colors.greenAccent : Colors.grey, width: 2),
+              ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: _isScanningActive
@@ -661,7 +668,13 @@ class _MainScreenState extends State<MainScreen> {
                           _processCapturedImage(capture);
                         },
                       )
-                    : const Center(child: Text("انقر فوق 'ابدأ المسح بالكاميرا' لتشغيل الفحص الحي", style: TextStyle(color: Colors.white70), textAlign: TextAlign.center)),
+                    : const Center(
+                        child: Text(
+                          "انقر فوق 'ابدأ المسح بالكاميرا' لتشغيل الفحص الحي",
+                          style: TextStyle(color: Colors.white70),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
               ),
             ),
           ],
@@ -670,4 +683,3 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 }
-
