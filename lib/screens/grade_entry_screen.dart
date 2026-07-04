@@ -26,7 +26,7 @@ class GradeEntryScreen extends StatefulWidget {
 
 class _GradeEntryScreenState extends State<GradeEntryScreen> {
   String _fileName = "لم يتم اختيار ملف الكنترول بعد";
-  String? _selectedFilePath;
+  String? _selectedFilePath; // هذا المتغير هو الأهم
   List<String> _subjects = [];
   String? _selectedSubject;
   bool _isLoading = false;
@@ -48,399 +48,403 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   px.Excel? _excelInstance;
 
-  // ===================== دالة المسار العام لمجلد Downloads (الصحيحة) =====================
+  // ===================== دالة المسار العام لمجلد Downloads =====================
   Future<String> _getGradesDirectoryPath() async {
-    final Directory? downloadsDir = await getDownloadsDirectory(); // ✅ مع حرف s
-    if (downloadsDir == null) {
-      throw Exception('لا يمكن الوصول إلى مجلد Downloads');
-    }
-    final String path = '${downloadsDir.path}/درجات الطلاب';
-    final Directory dir = Directory(path);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return path;
+  final Directory? downloadsDir = await getDownloadsDirectory();
+  if (downloadsDir == null) {
+    throw Exception('لا يمكن الوصول إلى مجلد Downloads');
   }
-
-  Future<void> _loadLastExcelFile() async {
-    try {
-      final String gradesDir = await _getGradesDirectoryPath();
-      final Directory dir = Directory(gradesDir);
-      if (!await dir.exists()) return;
-
-      final List<FileSystemEntity> files = await dir.list().toList();
-      for (var entity in files) {
-        if (entity is File && (entity.path.endsWith('.xlsx') || entity.path.endsWith('.xls'))) {
-          setState(() {
-            _selectedFilePath = entity.path;
-            _fileName = entity.path.split('/').last;
-          });
-          await _parseExcelFile(entity.path);
-          break;
-        }
-      }
-    } catch (e) {
-      print('خطأ في تحميل آخر ملف: $e');
-    }
+  final String path = '${downloadsDir.path}/درجات الطلاب';
+  final Directory dir = Directory(path);
+  if (!await dir.exists()) {
+    await dir.create(recursive: true);
   }
+  return path;
+}
 
-  @override
-  void initState() {
-    super.initState();
-    _requestPermissions();
-    _loadLastExcelFile();
-  }
+// ===================== تحميل آخر ملف مستخدم =====================
+Future<void> _loadLastExcelFile() async {
+  try {
+    final String gradesDir = await _getGradesDirectoryPath();
+    final Directory dir = Directory(gradesDir);
+    if (!await dir.exists()) return;
 
-  @override
-  void dispose() {
-    _gradeController.dispose();
-    _cameraController.dispose();
-    _textRecognizer.close();
-    super.dispose();
-  }
-
-  Future<void> _requestPermissions() async {
-    await Permission.storage.request();
-    await Permission.camera.request();
-    if (await Permission.manageExternalStorage.request().isGranted) {
-      debugPrint("تم الحصول على صلاحية إدارة الملفات الشاملة");
-    }
-  }
-
-  Future<void> _parseExcelFile(String filePath) async {
-    try {
-      final bytes = await File(filePath).readAsBytes();
-      _excelInstance = px.Excel.decodeBytes(bytes);
-
-      if (_excelInstance!.tables.isNotEmpty) {
-        var sheet = _excelInstance!.tables.values.first;
-        List<String> tempSubjects = [];
-
-        if (sheet.maxRows > 0) {
-          var row = sheet.rows.first;
-          for (int i = 4; i <= 18; i++) {
-            if (i < row.length && row[i] != null) {
-              tempSubjects.add(row[i]!.value.toString());
-            }
-          }
-        }
-
+    final List<FileSystemEntity> files = await dir.list().toList();
+    for (var entity in files) {
+      if (entity is File && (entity.path.endsWith('.xlsx') || entity.path.endsWith('.xls'))) {
         setState(() {
-          _subjects = tempSubjects;
-          _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0;
-          _gradedStudents = 0;
-          _fileName = filePath.split('/').last;
-          _selectedFilePath = filePath;
+          _selectedFilePath = entity.path; // تحديث المسار هنا
+          _fileName = entity.path.split('/').last;
         });
+        await _parseExcelFile(entity.path);
+        break;
       }
-    } catch (e) {
-      _showSnackBar("خطأ في قراءة الملف: $e");
-      setState(() {
-        _fileName = "فشل في قراءة ملف الأكسيل";
-        _subjects = [];
-        _totalStudents = 0;
-      });
     }
+  } catch (e) {
+    print('خطأ في تحميل آخر ملف: $e');
   }
+}
 
-  Future<void> _pickAndParseExcel() async {
-    await _requestPermissions();
-    setState(() { _isLoading = true; });
+@override
+void initState() {
+  super.initState();
+  _requestPermissions();
+  _loadLastExcelFile();
+}
 
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls'],
-      );
+@override
+void dispose() {
+  _gradeController.dispose();
+  _cameraController.dispose();
+  _textRecognizer.close();
+  super.dispose();
+}
 
-      if (result != null && result.files.single.path != null) {
-        final String sourcePath = result.files.single.path!;
-        final String fileName = result.files.single.name;
-
-        final String gradesDir = await _getGradesDirectoryPath();
-        final String targetPath = '$gradesDir/$fileName';
-
-        if (await File(targetPath).exists()) {
-          await File(targetPath).delete();
-        }
-        await File(sourcePath).copy(targetPath);
-
-        await _parseExcelFile(targetPath);
-
-        _showSnackBar('✅ تم نسخ الملف إلى: $targetPath');
-      } else {
-        _showSnackBar('لم يتم اختيار ملف');
-      }
-    } catch (e) {
-      _showSnackBar("حدث خطأ أثناء المعالجة: $e");
-    } finally {
-      setState(() { _isLoading = false; });
-    }
+Future<void> _requestPermissions() async {
+  await Permission.storage.request();
+  await Permission.camera.request();
+  if (await Permission.manageExternalStorage.request().isGranted) {
+    debugPrint("تم الحصول على صلاحية إدارة الملفات الشاملة");
   }
+}
 
-  String _convertArabicHindiDigits(String input) {
-    const arabicDigits = {
-      '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
-      '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
-    };
-    String output = input;
-    arabicDigits.forEach((arabic, english) {
-      output = output.replaceAll(arabic, english);
-    });
-    return output.replaceAll(RegExp(r'[^0-9.]'), '');
-  }
+Future<void> _parseExcelFile(String filePath) async {
+  try {
+    final bytes = await File(filePath).readAsBytes();
+    _excelInstance = px.Excel.decodeBytes(bytes);
 
-  String _extractNumber(String text) {
-    final converted = _convertArabicHindiDigits(text);
-    final match = RegExp(r'\d+').firstMatch(converted);
-    return match?.group(0) ?? '';
-  }
-
-  Future<_ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
-    try {
-      final img.Image? fullImage = img.decodeImage(imageBytes);
-      if (fullImage == null) return null;
-
-      final int width = fullImage.width;
-      final int height = fullImage.height;
-      final int regionWidth = width ~/ 3;
-
-      final leftRegionImg = img.copyCrop(fullImage, x: 0, y: 0, width: regionWidth, height: height);
-      final centerRegionImg = img.copyCrop(fullImage, x: regionWidth, y: 0, width: regionWidth, height: height);
-      final rightRegionImg = img.copyCrop(fullImage, x: regionWidth * 2, y: 0, width: regionWidth, height: height);
-
-      return _ImageRegions(
-        leftRegion: Uint8List.fromList(img.encodePng(leftRegionImg)),
-        centerRegion: Uint8List.fromList(img.encodePng(centerRegionImg)),
-        rightRegion: Uint8List.fromList(img.encodePng(rightRegionImg)),
-      );
-    } catch (e) {
-      print('خطأ في القص: $e');
-      return null;
-    }
-  }
-
-  Future<String> _recognizeTextFromBytes(Uint8List bytes) async {
-    try {
-      final tempDir = await Directory.systemTemp.createTemp('ocr_');
-      final tempFile = File('${tempDir.path}/image.png');
-      await tempFile.writeAsBytes(bytes);
-
-      final inputImage = InputImage.fromFile(tempFile);
-      final RecognizedText recognized = await _textRecognizer.processImage(inputImage);
-
-      await tempFile.delete();
-      await tempDir.delete();
-
-      return recognized.text.trim();
-    } catch (e) {
-      print('خطأ في OCR: $e');
-      return '';
-    }
-  }
-
-  Future<void> _processCapturedImage(BarcodeCapture capture) async {
-    if (capture.barcodes.isEmpty || capture.barcodes.first.rawValue == null) return;
-
-    final String qrValue = capture.barcodes.first.rawValue!;
-
-    await _cameraController.stop();
-
-    setState(() {
-      _secretIdResult = qrValue;
-      _gradeController.clear();
-    });
-
-    if (capture.image == null) {
-      _showSnackBar("⚠️ لم يتم التقاط الصورة، حاول مجدداً");
-      return;
-    }
-
-    final regions = await _cropImageRegions(capture.image!, capture.size);
-    if (regions == null) {
-      _showSnackBar("⚠️ فشل في قص الصورة");
-      return;
-    }
-
-    String subjectCode = '';
-    if (regions.rightRegion != null) {
-      final rightText = await _recognizeTextFromBytes(regions.rightRegion!);
-      subjectCode = _extractNumber(rightText);
-      print('📚 رقم المادة المقروء: $subjectCode');
-    }
-
-    String gradeText = '';
-    if (regions.leftRegion != null) {
-      final leftText = await _recognizeTextFromBytes(regions.leftRegion!);
-      gradeText = _extractNumber(leftText);
-      print('⭐ الدرجة المقروءة: $gradeText');
-    }
-
-    if (_selectedSubject == null) {
-      _showSnackBar("⚠️ يرجى اختيار المادة أولاً");
-      if (_isScanningActive) await _cameraController.start();
-      return;
-    }
-
-    int currentSubjectIndex = _subjects.indexOf(_selectedSubject!) + 1;
-
-    if (subjectCode.isNotEmpty && subjectCode != currentSubjectIndex.toString()) {
-      _showDialogAlert(
-        title: "⚠️ تنبيه: عدم تطابق المادة",
-        message: "رقم المادة المقروء ($subjectCode) لا يطابق المادة المختارة (${_selectedSubject} - رقم $currentSubjectIndex)\n\nتم إيقاف العملية لحماية الكنترول.",
-        shouldCloseCamera: true,
-      );
-      return;
-    }
-
-    if (gradeText.isNotEmpty) {
-      setState(() {
-        _gradeController.text = gradeText;
-      });
-      _showSnackBar("✅ تم قراءة الدرجة: $gradeText");
-    } else {
-      _showSnackBar("ℹ️ لم يتم التعرف على الدرجة، أدخلها يدوياً");
-    }
-
-    if (_isScanningActive) {
-      await _cameraController.start();
-    }
-  }
-
-  // ===================== دالة الحفظ المعدلة (الصحيحة) =====================
-  Future<void> _saveGradeToExcel() async {
-    if (_excelInstance == null || _selectedFilePath == null) {
-      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
-      return;
-    }
-
-    setState(() { _isLoading = true; });
-
-    try {
+    if (_excelInstance!.tables.isNotEmpty) {
       var sheet = _excelInstance!.tables.values.first;
-      bool targetFound = false;
-      int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
+      List<String> tempSubjects = [];
 
-      for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
-
-        if (cellD.toString().trim() == _secretIdResult.trim()) {
-          targetFound = true;
-
-          var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
-            columnIndex: subjectColumnIndex,
-            rowIndex: rowIndex
-          )).value;
-
-          if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
-            setState(() { _isLoading = false; });
-            _showDialogAlert(
-              title: "⚠️ تنبيه: رصد مسبق!",
-              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
-              shouldCloseCamera: false,
-            );
-            return;
+      if (sheet.maxRows > 0) {
+        var row = sheet.rows.first;
+        for (int i = 4; i <= 18; i++) {
+          if (i < row.length && row[i] != null) {
+            tempSubjects.add(row[i]!.value.toString());
           }
-
-          sheet.cell(px.CellIndex.indexByColumnRow(
-            columnIndex: subjectColumnIndex,
-            rowIndex: rowIndex
-          )).value = px.TextCellValue(_gradeController.text);
-          break;
         }
       }
 
-      if (!targetFound) {
-        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
-        setState(() { _isLoading = false; });
-        return;
+      setState(() {
+        _subjects = tempSubjects;
+        _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0;
+        _gradedStudents = 0;
+        _fileName = filePath.split('/').last;
+        _selectedFilePath = filePath; // تحديث المسار هنا
+      });
+    }
+  } catch (e) {
+    _showSnackBar("خطأ في قراءة الملف: $e");
+    setState(() {
+      _fileName = "فشل في قراءة ملف الأكسيل";
+      _subjects = [];
+      _totalStudents = 0;
+    });
+  }
+}
+
+// ===================== اختيار ملف Excel =====================
+Future<void> _pickAndParseExcel() async {
+  await _requestPermissions();
+  setState(() { _isLoading = true; });
+
+  try {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xls'],
+    );
+
+    if (result != null && result.files.single.path != null) {
+      final String sourcePath = result.files.single.path!;
+      final String fileName = result.files.single.name;
+
+      final String gradesDir = await _getGradesDirectoryPath();
+      final String targetPath = '$gradesDir/$fileName';
+
+      if (await File(targetPath).exists()) {
+        await File(targetPath).delete();
       }
+      await File(sourcePath).copy(targetPath);
 
-      final List<int>? fileBytesList = _excelInstance!.encode();
-      if (fileBytesList == null) {
-        _showSnackBar("❌ فشل في ترميز الملف");
-        setState(() { _isLoading = false; });
-        return;
+      // تحديث المسار إلى الملف المنسوخ في Downloads
+      await _parseExcelFile(targetPath);
+
+      _showSnackBar('✅ تم نسخ الملف إلى: $targetPath');
+    } else {
+      _showSnackBar('لم يتم اختيار ملف');
+    }
+  } catch (e) {
+    _showSnackBar("حدث خطأ أثناء المعالجة: $e");
+  } finally {
+    setState(() { _isLoading = false; });
+  }
+}
+  
+String _convertArabicHindiDigits(String input) {
+  const arabicDigits = {
+    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+  };
+  String output = input;
+  arabicDigits.forEach((arabic, english) {
+    output = output.replaceAll(arabic, english);
+  });
+  return output.replaceAll(RegExp(r'[^0-9.]'), '');
+}
+
+String _extractNumber(String text) {
+  final converted = _convertArabicHindiDigits(text);
+  final match = RegExp(r'\d+').firstMatch(converted);
+  return match?.group(0) ?? '';
+}
+
+Future<_ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
+  try {
+    final img.Image? fullImage = img.decodeImage(imageBytes);
+    if (fullImage == null) return null;
+
+    final int width = fullImage.width;
+    final int height = fullImage.height;
+    final int regionWidth = width ~/ 3;
+
+    final leftRegionImg = img.copyCrop(fullImage, x: 0, y: 0, width: regionWidth, height: height);
+    final centerRegionImg = img.copyCrop(fullImage, x: regionWidth, y: 0, width: regionWidth, height: height);
+    final rightRegionImg = img.copyCrop(fullImage, x: regionWidth * 2, y: 0, width: regionWidth, height: height);
+
+    return _ImageRegions(
+      leftRegion: Uint8List.fromList(img.encodePng(leftRegionImg)),
+      centerRegion: Uint8List.fromList(img.encodePng(centerRegionImg)),
+      rightRegion: Uint8List.fromList(img.encodePng(rightRegionImg)),
+    );
+  } catch (e) {
+    print('خطأ في القص: $e');
+    return null;
+  }
+}
+
+Future<String> _recognizeTextFromBytes(Uint8List bytes) async {
+  try {
+    final tempDir = await Directory.systemTemp.createTemp('ocr_');
+    final tempFile = File('${tempDir.path}/image.png');
+    await tempFile.writeAsBytes(bytes);
+
+    final inputImage = InputImage.fromFile(tempFile);
+    final RecognizedText recognized = await _textRecognizer.processImage(inputImage);
+
+    await tempFile.delete();
+    await tempDir.delete();
+
+    return recognized.text.trim();
+  } catch (e) {
+    print('خطأ في OCR: $e');
+    return '';
+  }
+}
+
+Future<void> _processCapturedImage(BarcodeCapture capture) async {
+  if (capture.barcodes.isEmpty || capture.barcodes.first.rawValue == null) return;
+
+  final String qrValue = capture.barcodes.first.rawValue!;
+
+  await _cameraController.stop();
+
+  setState(() {
+    _secretIdResult = qrValue;
+    _gradeController.clear();
+  });
+
+  if (capture.image == null) {
+    _showSnackBar("⚠️ لم يتم التقاط الصورة، حاول مجدداً");
+    return;
+  }
+
+  final regions = await _cropImageRegions(capture.image!, capture.size);
+  if (regions == null) {
+    _showSnackBar("⚠️ فشل في قص الصورة");
+    return;
+  }
+
+  String subjectCode = '';
+  if (regions.rightRegion != null) {
+    final rightText = await _recognizeTextFromBytes(regions.rightRegion!);
+    subjectCode = _extractNumber(rightText);
+    print('📚 رقم المادة المقروء: $subjectCode');
+  }
+
+  String gradeText = '';
+  if (regions.leftRegion != null) {
+    final leftText = await _recognizeTextFromBytes(regions.leftRegion!);
+    gradeText = _extractNumber(leftText);
+    print('⭐ الدرجة المقروءة: $gradeText');
+  }
+
+  if (_selectedSubject == null) {
+    _showSnackBar("⚠️ يرجى اختيار المادة أولاً");
+    if (_isScanningActive) await _cameraController.start();
+    return;
+  }
+
+  int currentSubjectIndex = _subjects.indexOf(_selectedSubject!) + 1;
+
+  if (subjectCode.isNotEmpty && subjectCode != currentSubjectIndex.toString()) {
+    _showDialogAlert(
+      title: "⚠️ تنبيه: عدم تطابق المادة",
+      message: "رقم المادة المقروء ($subjectCode) لا يطابق المادة المختارة (${_selectedSubject} - رقم $currentSubjectIndex)\n\nتم إيقاف العملية لحماية الكنترول.",
+      shouldCloseCamera: true,
+    );
+    return;
+  }
+
+  if (gradeText.isNotEmpty) {
+    setState(() {
+      _gradeController.text = gradeText;
+    });
+    _showSnackBar("✅ تم قراءة الدرجة: $gradeText");
+  } else {
+    _showSnackBar("ℹ️ لم يتم التعرف على الدرجة، أدخلها يدوياً");
+  }
+
+  if (_isScanningActive) {
+    await _cameraController.start();
+  }
+}
+
+// ===================== حفظ الدرجة في Excel =====================
+Future<void> _saveGradeToExcel() async {
+  if (_excelInstance == null || _selectedFilePath == null) {
+    _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
+    return;
+  }
+
+  setState(() { _isLoading = true; });
+
+  try {
+    var sheet = _excelInstance!.tables.values.first;
+    bool targetFound = false;
+    int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
+
+    for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
+      var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+
+      if (cellD.toString().trim() == _secretIdResult.trim()) {
+        targetFound = true;
+
+        var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
+          columnIndex: subjectColumnIndex,
+          rowIndex: rowIndex
+        )).value;
+
+        if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
+          setState(() { _isLoading = false; });
+          _showDialogAlert(
+            title: "⚠️ تنبيه: رصد مسبق!",
+            message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
+            shouldCloseCamera: false,
+          );
+          return;
+        }
+
+        sheet.cell(px.CellIndex.indexByColumnRow(
+          columnIndex: subjectColumnIndex,
+          rowIndex: rowIndex
+        )).value = px.TextCellValue(_gradeController.text);
+        break;
       }
-      final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
+    }
 
-      // ===== عرض المسار وتأكيد الحفظ =====
-      final String currentPath = _selectedFilePath!;
+    if (!targetFound) {
+      _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
+      setState(() { _isLoading = false; });
+      return;
+    }
 
-      final bool confirmSave = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('📁 تأكيد الحفظ'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('سيتم حفظ الدرجات في الملف التالي:'),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  currentPath,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
+    final List<int>? fileBytesList = _excelInstance!.encode();
+    if (fileBytesList == null) {
+      _showSnackBar("❌ فشل في ترميز الملف");
+      setState(() { _isLoading = false; });
+      return;
+    }
+    final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
+
+    // ===== المسار النهائي =====
+    final String currentPath = _selectedFilePath!;
+
+    // نعرض المسار للمستخدم للتأكيد
+    final bool confirmSave = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('📁 تأكيد الحفظ'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('سيتم حفظ الدرجات في الملف التالي:'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(height: 12),
-              const Text('هل هذا هو الملف الذي تريد التعديل عليه؟'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
+              child: Text(
+                currentPath,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
             ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('نعم، احفظ'),
-            ),
+            const SizedBox(height: 12),
+            const Text('هل هذا هو الملف الذي تريد التعديل عليه؟'),
           ],
         ),
-      ) ?? false;
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('نعم، احفظ'),
+          ),
+        ],
+      ),
+    ) ?? false;
 
-      if (!confirmSave) {
-        _showSnackBar("❌ تم إلغاء الحفظ");
-        setState(() { _isLoading = false; });
-        return;
-      }
-
-      // ===== الكتابة على الملف =====
-      final File targetFile = File(currentPath);
-      if (await targetFile.exists()) {
-        await targetFile.writeAsBytes(fileBytes, flush: true);
-      } else {
-        _showSnackBar("❌ الملف غير موجود في المسار المحدد!");
-        setState(() { _isLoading = false; });
-        return;
-      }
-
-      // ===== التحقق من النجاح =====
-      if (await targetFile.exists() && await targetFile.length() > 0) {
-        setState(() {
-          _gradedStudents += 1;
-          _secretIdResult = "سيظهر هنا الرقم السري";
-          _gradeController.clear();
-          _isScanningActive = false;
-        });
-        _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $currentPath");
-      } else {
-        _showSnackBar("❌ فشل حفظ الملف!");
-      }
-
-    } catch (e) {
-      _showSnackBar("❌ خطأ في الحفظ: $e");
-      print('خطأ الحفظ: $e');
-    } finally {
+    if (!confirmSave) {
+      _showSnackBar("❌ تم إلغاء الحفظ");
       setState(() { _isLoading = false; });
+      return;
     }
+
+    // ===== الكتابة على الملف =====
+    final File targetFile = File(currentPath);
+    if (await targetFile.exists()) {
+      await targetFile.writeAsBytes(fileBytes, flush: true);
+    } else {
+      _showSnackBar("❌ الملف غير موجود في المسار المحدد!");
+      setState(() { _isLoading = false; });
+      return;
+    }
+
+    // ===== التحقق من النجاح =====
+    if (await targetFile.exists() && await targetFile.length() > 0) {
+      setState(() {
+        _gradedStudents += 1;
+        _secretIdResult = "سيظهر هنا الرقم السري";
+        _gradeController.clear();
+        _isScanningActive = false;
+      });
+      _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $currentPath");
+    } else {
+      _showSnackBar("❌ فشل حفظ الملف!");
+    }
+
+  } catch (e) {
+    _showSnackBar("❌ خطأ في الحفظ: $e");
+    print('خطأ الحفظ: $e');
+  } finally {
+    setState(() { _isLoading = false; });
   }
+}  
 
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
@@ -706,3 +710,4 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     );
   }
 }
+
