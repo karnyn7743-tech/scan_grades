@@ -49,11 +49,49 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   px.Excel? _excelInstance;
 
+  // ===================== دالة المسار الموحد =====================
+  Future<String> _getGradesDirectoryPath() async {
+    final Directory? downloadsDir = await getDownloadsDirectory();
+    if (downloadsDir == null) {
+      throw Exception('لا يمكن الوصول إلى مجلد Downloads');
+    }
+    final String path = '${downloadsDir.path}/درجات الطلاب';
+    final Directory dir = Directory(path);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return path;
+  }
+
+  // ===================== تحميل آخر ملف مستخدم =====================
+  Future<void> _loadLastExcelFile() async {
+    try {
+      final String gradesDir = await _getGradesDirectoryPath();
+      final Directory dir = Directory(gradesDir);
+      if (!await dir.exists()) return;
+
+      final List<FileSystemEntity> files = await dir.list().toList();
+      for (var entity in files) {
+        if (entity is File && (entity.path.endsWith('.xlsx') || entity.path.endsWith('.xls'))) {
+          setState(() {
+            _selectedFilePath = entity.path;
+            _fileName = entity.path.split('/').last;
+          });
+          await _parseExcelFile(entity.path);
+          break;
+        }
+      }
+    } catch (e) {
+      print('خطأ في تحميل آخر ملف: $e');
+    }
+  }
+
   // ===================== دورة الحياة =====================
   @override
   void initState() {
     super.initState();
     _requestPermissions();
+    _loadLastExcelFile(); // تحميل آخر ملف مستخدم تلقائياً
   }
 
   @override
@@ -73,7 +111,44 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== اختيار ملف Excel =====================
+  // ===================== تحليل ملف Excel =====================
+  Future<void> _parseExcelFile(String filePath) async {
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      _excelInstance = px.Excel.decodeBytes(bytes);
+
+      if (_excelInstance!.tables.isNotEmpty) {
+        var sheet = _excelInstance!.tables.values.first;
+        List<String> tempSubjects = [];
+
+        if (sheet.maxRows > 0) {
+          var row = sheet.rows.first;
+          for (int i = 4; i <= 18; i++) {
+            if (i < row.length && row[i] != null) {
+              tempSubjects.add(row[i]!.value.toString());
+            }
+          }
+        }
+
+        setState(() {
+          _subjects = tempSubjects;
+          _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0;
+          _gradedStudents = 0;
+          _fileName = filePath.split('/').last;
+          _selectedFilePath = filePath;
+        });
+      }
+    } catch (e) {
+      _showSnackBar("خطأ في قراءة الملف: $e");
+      setState(() {
+        _fileName = "فشل في قراءة ملف الأكسيل";
+        _subjects = [];
+        _totalStudents = 0;
+      });
+    }
+  }
+
+  // ===================== اختيار ملف Excel ونسخه إلى المجلد الموحد =====================
   Future<void> _pickAndParseExcel() async {
     await _requestPermissions();
     setState(() { _isLoading = true; });
@@ -85,35 +160,29 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       );
 
       if (result != null && result.files.single.path != null) {
-        _selectedFilePath = result.files.single.path!;
-        String nameOfFile = result.files.single.name;
+        final String sourcePath = result.files.single.path!;
+        final String fileName = result.files.single.name;
 
-        var bytes = File(_selectedFilePath!).readAsBytesSync();
-        _excelInstance = px.Excel.decodeBytes(bytes);
+        // الحصول على المجلد الموحد
+        final String gradesDir = await _getGradesDirectoryPath();
+        final String targetPath = '$gradesDir/$fileName';
 
-        if (_excelInstance!.tables.isNotEmpty) {
-          var sheet = _excelInstance!.tables.values.first;
-          List<String> tempSubjects = [];
-
-          if (sheet.maxRows > 0) {
-            var row = sheet.rows.first;
-            for (int i = 4; i <= 18; i++) {
-              if (i < row.length && row[i] != null) {
-                tempSubjects.add(row[i]!.value.toString());
-              }
-            }
-          }
-
-          setState(() {
-            _fileName = nameOfFile;
-            _subjects = tempSubjects;
-            _totalStudents = sheet.maxRows > 1 ? sheet.maxRows - 1 : 0;
-            _gradedStudents = 0;
-          });
+        // حذف الملف القديم إذا كان موجوداً
+        if (await File(targetPath).exists()) {
+          await File(targetPath).delete();
         }
+
+        // نسخ الملف إلى المجلد الموحد
+        await File(sourcePath).copy(targetPath);
+
+        // تحليل الملف المنسوخ
+        await _parseExcelFile(targetPath);
+
+        _showSnackBar('✅ تم نسخ الملف إلى: $targetPath');
+      } else {
+        _showSnackBar('لم يتم اختيار ملف');
       }
     } catch (e) {
-      setState(() { _fileName = "فشل في قراءة ملف الأكسيل"; });
       _showSnackBar("حدث خطأ أثناء المعالجة: $e");
     } finally {
       setState(() { _isLoading = false; });
@@ -256,7 +325,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== حفظ الدرجة في Excel =====================
+  // ===================== حفظ الدرجة في Excel (في المسار الموحد) =====================
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
@@ -270,12 +339,11 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       bool targetFound = false;
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
+      // البحث عن الطالب
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellA = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value;
-        var cellB = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+        var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
-        if (cellA.toString().trim() == _secretIdResult.trim() ||
-            cellB.toString().trim() == _secretIdResult.trim()) {
+        if (cellD.toString().trim() == _secretIdResult.trim()) {
           targetFound = true;
 
           var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
@@ -307,6 +375,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         return;
       }
 
+      // ترميز الملف
       final List<int>? fileBytesList = _excelInstance!.encode();
       if (fileBytesList == null) {
         _showSnackBar("❌ فشل في ترميز الملف");
@@ -315,77 +384,19 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       }
       final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
 
-      String? finalPath;
-      bool saved = false;
+      // ========== استخدام المسار الموحد ==========
+      final String gradesDir = await _getGradesDirectoryPath();
+      final String fileName = File(_selectedFilePath!).path.split('/').last;
+      final String finalPath = '$gradesDir/$fileName';
 
-      // محاولة 1: حفظ في مجلد Downloads العام
-      try {
-        final Directory? downloadsDir = await getDownloadsDirectory();
-        if (downloadsDir != null) {
-          final String gradesFolder = '${downloadsDir.path}/درجات الطلاب';
-          final Directory folder = Directory(gradesFolder);
-          if (!await folder.exists()) {
-            await folder.create(recursive: true);
-          }
-
-          final String fileName = File(_selectedFilePath!).path.split('/').last;
-          final String path = '$gradesFolder/$fileName';
-
-          final File file = File(path);
-          if (await file.exists()) await file.delete();
-          await file.writeAsBytes(fileBytes, flush: true);
-
-          if (await file.exists() && await file.length() > 0) {
-            finalPath = path;
-            saved = true;
-          }
-        }
-      } catch (e) {
-        print('محاولة الحفظ في Downloads فشلت: $e');
+      // حفظ الملف مباشرة في المسار الموحد
+      final File finalFile = File(finalPath);
+      if (await finalFile.exists()) {
+        await finalFile.delete();
       }
+      await finalFile.writeAsBytes(fileBytes, flush: true);
 
-      // محاولة 2: استخدام FilePicker
-      if (!saved) {
-        try {
-          final String? pickedPath = await FilePicker.platform.saveFile(
-            dialogTitle: 'اختر مكان حفظ ملف الدرجات',
-            fileName: File(_selectedFilePath!).path.split('/').last,
-            bytes: fileBytes,
-          );
-
-          if (pickedPath != null) {
-            final File file = File(pickedPath);
-            if (await file.exists() && await file.length() > 0) {
-              finalPath = pickedPath;
-              saved = true;
-            }
-          }
-        } catch (e) {
-          print('محاولة FilePicker فشلت: $e');
-        }
-      }
-
-      // محاولة 3: حفظ في مجلد التطبيق
-      if (!saved) {
-        try {
-          final Directory appDir = await getApplicationDocumentsDirectory();
-          final String fileName = File(_selectedFilePath!).path.split('/').last;
-          final String path = '${appDir.path}/$fileName';
-
-          final File file = File(path);
-          if (await file.exists()) await file.delete();
-          await file.writeAsBytes(fileBytes, flush: true);
-
-          if (await file.exists() && await file.length() > 0) {
-            finalPath = path;
-            saved = true;
-          }
-        } catch (e) {
-          print('محاولة مجلد التطبيق فشلت: $e');
-        }
-      }
-
-      if (saved && finalPath != null) {
+      if (await finalFile.exists() && await finalFile.length() > 0) {
         setState(() {
           _gradedStudents += 1;
           _secretIdResult = "سيظهر هنا الرقم السري";
@@ -395,7 +406,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         });
         _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
       } else {
-        _showSnackBar("❌ فشل حفظ الملف في جميع المحاولات!");
+        _showSnackBar("❌ فشل حفظ الملف في المسار الموحد!");
       }
 
     } catch (e) {
