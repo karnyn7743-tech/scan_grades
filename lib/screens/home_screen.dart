@@ -15,12 +15,13 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ===================== دالة المسار الموحد =====================
+  // ===================== دالة المسار العام لمجلد Downloads =====================
   Future<String> _getGradesDirectoryPath() async {
     final Directory? downloadsDir = await getDownloadsDirectory();
     if (downloadsDir == null) {
       throw Exception('لا يمكن الوصول إلى مجلد Downloads');
     }
+    // استخدام المسار العام مباشرة
     final String path = '${downloadsDir.path}/درجات الطلاب';
     final Directory dir = Directory(path);
     if (!await dir.exists()) {
@@ -35,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await Permission.manageExternalStorage.request();
   }
 
-  // ===================== اختيار ملف Excel ونسخه إلى المجلد الموحد =====================
+  // ===================== اختيار ملف Excel ونسخه إلى مجلد Downloads =====================
   Future<void> _pickExcelFile() async {
     await _requestPermissions();
 
@@ -55,7 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final String sourcePath = result.files.single.path!;
       final String fileName = result.files.single.name;
 
-      // الحصول على المجلد الموحد
+      // الحصول على مجلد Downloads/درجات الطلاب
       final String gradesDir = await _getGradesDirectoryPath();
       final String targetPath = '$gradesDir/$fileName';
 
@@ -64,11 +65,8 @@ class _HomeScreenState extends State<HomeScreen> {
         await File(targetPath).delete();
       }
 
-      // نسخ الملف إلى المجلد الموحد
+      // نسخ الملف إلى مجلد Downloads
       await File(sourcePath).copy(targetPath);
-
-      // تخزين المسار الجديد في Session (يمكنك استخدام SharedPreferences لاحقاً)
-      // سنمرر المسار إلى الشاشات الأخرى عبر الـ Navigator
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -76,9 +74,6 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Colors.green,
         ),
       );
-
-      // هنا يمكنك حفظ المسار في متغير عام أو تمريره للشاشات
-      // لكننا سنكتفي بعرض رسالة نجاح، وسيتم التعامل مع المسار في كل شاشة على حدة
 
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -90,7 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ===================== واجهة المستخدم =====================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -114,7 +108,6 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // الزر الأول: توليد QR Codes
             _buildMainButton(
               context,
               title: 'تكوين QR Code للأرقام السرية للطلاب',
@@ -128,8 +121,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             const SizedBox(height: 20),
-
-            // الزر الثاني: قراءة QR فقط
             _buildMainButton(
               context,
               title: 'قراءة الـ QR Code للطلاب',
@@ -143,8 +134,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             const SizedBox(height: 20),
-
-            // الزر الثالث: إدخال الدرجات
             _buildMainButton(
               context,
               title: 'إدخال الدرجات من أوراق الإجابة',
