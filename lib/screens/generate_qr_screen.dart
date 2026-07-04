@@ -5,8 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:qr/qr.dart';
-import 'package:image/image.dart' as img;
+import 'package:qr_code_generator/qr_code_generator.dart';
 
 class GenerateQRScreen extends StatefulWidget {
   const GenerateQRScreen({super.key});
@@ -190,22 +189,15 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     }
   }
 
-  // ===================== الدالة المصححة =====================
+  // ===================== الدالة النهائية لتوليد QR =====================
   Future<Uint8List> _generateQRImage(String data, {int size = 200}) async {
-    // توليد QR Code باستخدام حزمة qr
-    final qrCode = QrCode.fromData(
+    final Uint8List qrBytes = await QrCodeGenerator.generateQrCode(
       data: data,
-      errorCorrectLevel: QrErrorCorrectLevel.M,
+      size: size,
+      foregroundColor: Colors.black,
+      backgroundColor: Colors.white,
     );
-    // إنشاء صورة QR باستخدام QrImage (بدون size)
-    final qrImage = QrImage(qrCode);
-    // الحصول على الصورة كـ Image من حزمة image
-    final image = qrImage.toImage();
-    // تغيير الحجم إلى الحجم المطلوب
-    final resized = img.copyResize(image, width: size, height: size);
-    // ترميز إلى PNG
-    final bytes = img.encodePng(resized);
-    return Uint8List.fromList(bytes);
+    return qrBytes;
   }
 
   void _showMessage(String message) {
