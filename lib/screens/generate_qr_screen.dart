@@ -5,7 +5,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as px;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:qr_code_generator/qr_code_generator.dart';
+import 'package:qr/qr.dart';
+import 'package:image/image.dart' as img;
 
 class GenerateQRScreen extends StatefulWidget {
   const GenerateQRScreen({super.key});
@@ -189,15 +190,49 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     }
   }
 
-  // ===================== الدالة النهائية لتوليد QR =====================
+  // ===================== دالة توليد QR (تعمل بدون حزم إضافية) =====================
   Future<Uint8List> _generateQRImage(String data, {int size = 200}) async {
-    final Uint8List qrBytes = await QrCodeGenerator.generateQrCode(
+    // 1. توليد كود QR
+    final qrCode = QrCode.fromData(
       data: data,
-      size: size,
-      foregroundColor: Colors.black,
-      backgroundColor: Colors.white,
+      errorCorrectLevel: QrErrorCorrectLevel.M,
     );
-    return qrBytes;
+
+    // 2. استخراج المصفوفة (module matrix)
+    final List<List<bool>> modules = qrCode.modules;
+    final int moduleCount = modules.length;
+
+    // 3. إنشاء صورة بيضاء
+    final int pixelSize = (size / moduleCount).floor();
+    final int actualSize = pixelSize * moduleCount;
+    img.Image image = img.Image(width: actualSize, height: actualSize);
+
+    // 4. رسم الخلايا
+    for (int row = 0; row < moduleCount; row++) {
+      for (int col = 0; col < moduleCount; col++) {
+        final bool isBlack = modules[row][col];
+        final int color = isBlack ? 0x000000 : 0xFFFFFF;
+        // تعبئة المنطقة
+        for (int dy = 0; dy < pixelSize; dy++) {
+          for (int dx = 0; dx < pixelSize; dx++) {
+            final int x = col * pixelSize + dx;
+            final int y = row * pixelSize + dy;
+            if (x < actualSize && y < actualSize) {
+              image.setPixelRgb(x, y, color);
+            }
+          }
+        }
+      }
+    }
+
+    // 5. تغيير الحجم إذا لزم الأمر
+    if (actualSize != size) {
+      image = img.copyResize(image, width: size, height: size);
+    }
+
+    // 6. ترميز إلى PNG
+    final Uint8List bytes = Uint8List.fromList(img.encodePng(image));
+    return bytes;
   }
 
   void _showMessage(String message) {
