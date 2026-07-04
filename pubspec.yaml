@@ -27,7 +27,8 @@ dependencies:
   
   # الصلاحيات
   permission_handler: ^11.3.1
-  
+  shared_preferences: ^2.3.0
+ 
   # معالجة الصور (للقص)
   image: ^4.3.0
 
