@@ -50,11 +50,11 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
 
   // ===================== دالة المسار العام لمجلد Downloads =====================
   Future<String> _getGradesDirectoryPath() async {
-    final Directory? downloadsDir = await getDownloadsDirectory();
-    if (downloadsDir == null) {
-      throw Exception('لا يمكن الوصول إلى مجلد Downloads');
+    final Directory? downloadDir = await getDownloadDirectory();
+    if (downloadDir == null) {
+      throw Exception('لا يمكن الوصول إلى مجلد Download');
     }
-    final String path = '${downloadsDir.path}/درجات الطلاب';
+    final String path = '${downloadDir.path}/درجات الطلاب';
     final Directory dir = Directory(path);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -309,127 +309,157 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
 
   // ===================== دالة الحفظ المعدلة =====================
   Future<void> _saveGradeToExcel() async {
-    if (_excelInstance == null || _selectedFilePath == null) {
-      _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
+  if (_excelInstance == null || _selectedFilePath == null) {
+    _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
+    return;
+  }
+
+  setState(() { _isLoading = true; });
+
+  try {
+    var sheet = _excelInstance!.tables.values.first;
+    bool targetFound = false;
+    int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
+
+    // ===== البحث عن الطالب في العمود D =====
+    for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
+      var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+
+      if (cellD.toString().trim() == _secretIdResult.trim()) {
+        targetFound = true;
+
+        var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
+          columnIndex: subjectColumnIndex,
+          rowIndex: rowIndex
+        )).value;
+
+        if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
+          setState(() { _isLoading = false; });
+          _showDialogAlert(
+            title: "⚠️ تنبيه: رصد مسبق!",
+            message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
+            shouldCloseCamera: false,
+          );
+          return;
+        }
+
+        sheet.cell(px.CellIndex.indexByColumnRow(
+          columnIndex: subjectColumnIndex,
+          rowIndex: rowIndex
+        )).value = px.TextCellValue(_gradeController.text);
+        break;
+      }
+    }
+
+    if (!targetFound) {
+      _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
+      setState(() { _isLoading = false; });
       return;
     }
 
-    setState(() { _isLoading = true; });
+    // ===== ترميز الملف =====
+    final List<int>? fileBytesList = _excelInstance!.encode();
+    if (fileBytesList == null) {
+      _showSnackBar("❌ فشل في ترميز الملف");
+      setState(() { _isLoading = false; });
+      return;
+    }
+    final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
 
-    try {
-      var sheet = _excelInstance!.tables.values.first;
-      bool targetFound = false;
-      int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
+    // ===== عرض المسار للمستخدم مع تأكيد قوي =====
+    final String currentPath = _selectedFilePath!;
 
-      // البحث عن الطالب في العمود D فقط
-      for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
-        var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
+    // نعرض المسار بشكل واضح في مربع حوار
+    final bool confirmSave = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('📁 تأكيد الحفظ'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('سيتم حفظ الدرجات في الملف التالي:'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                currentPath,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('هل هذا هو الملف الذي تريد التعديل عليه؟'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('نعم، احفظ'),
+          ),
+        ],
+      ),
+    ) ?? false;
 
-        if (cellD.toString().trim() == _secretIdResult.trim()) {
-          targetFound = true;
+    if (!confirmSave) {
+      _showSnackBar("❌ تم إلغاء الحفظ");
+      setState(() { _isLoading = false; });
+      return;
+    }
 
-          var existingValue = sheet.cell(px.CellIndex.indexByColumnRow(
-            columnIndex: subjectColumnIndex,
-            rowIndex: rowIndex
-          )).value;
+    // ===== الكتابة على الملف =====
+    final File targetFile = File(currentPath);
 
-          if (existingValue != null && existingValue.toString().trim().isNotEmpty) {
-            setState(() { _isLoading = false; });
-            _showDialogAlert(
-              title: "⚠️ تنبيه: رصد مسبق!",
-              message: "هذا الطالب (الرقم السري: $_secretIdResult) تم رصد درجته مسبقاً في هذه المادة وهي (${existingValue.toString()}).",
-              shouldCloseCamera: false,
-            );
-            return;
-          }
-
-          sheet.cell(px.CellIndex.indexByColumnRow(
-            columnIndex: subjectColumnIndex,
-            rowIndex: rowIndex
-          )).value = px.TextCellValue(_gradeController.text);
-          break;
-        }
-      }
-
-      if (!targetFound) {
-        _showSnackBar("❌ لم يتم العثور على الرقم السري ($_secretIdResult) في الملف!");
+    // نسخ احتياطي مؤقت (للتأكد من أن الملف مكتوب فعلاً)
+    if (await targetFile.exists()) {
+      // نقرأ الملف الحالي للتأكد من أنه قابل للكتابة
+      try {
+        await targetFile.writeAsBytes(fileBytes, flush: true);
+      } catch (e) {
+        _showSnackBar("❌ خطأ في الكتابة: $e");
         setState(() { _isLoading = false; });
         return;
       }
+    } else {
+      _showSnackBar("❌ الملف غير موجود في المسار المحدد!");
+      setState(() { _isLoading = false; });
+      return;
+    }
 
-      // ترميز الملف
-      final List<int>? fileBytesList = _excelInstance!.encode();
-      if (fileBytesList == null) {
-        _showSnackBar("❌ فشل في ترميز الملف");
-        setState(() { _isLoading = false; });
-        return;
-      }
-      final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
-
-      // ===== الحفظ باستخدام SharedPreferences =====
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? savedPath = prefs.getString('excel_save_path');
-
-      // إذا كان المسار مخزناً، تحقق من وجوده
-      if (savedPath != null) {
-        final File file = File(savedPath);
-        if (await file.parent.exists()) {
-          // المسار موجود، نكتب فوقه مباشرة
-          await file.writeAsBytes(fileBytes, flush: true);
-          if (await file.exists() && await file.length() > 0) {
-            setState(() {
-              _gradedStudents += 1;
-              _secretIdResult = "سيظهر هنا الرقم السري";
-              _gradeController.clear();
-              _isScanningActive = false;
-              _selectedFilePath = savedPath;
-            });
-            _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $savedPath");
-            setState(() { _isLoading = false; });
-            return;
-          }
-        }
-      }
-
-      // إذا لم يكن هناك مسار مخزن أو فشل، اطلب من المستخدم اختيار المجلد
-      final String? pickedPath = await FilePicker.platform.saveFile(
-        dialogTitle: 'اختر مكان حفظ ملف الدرجات (مرة واحدة فقط)',
-        fileName: _fileName,
-        bytes: fileBytes,
-      );
-
-      if (pickedPath == null) {
-        _showSnackBar("❌ تم إلغاء الحفظ");
-        setState(() { _isLoading = false; });
-        return;
-      }
-
-      // حفظ المسار في SharedPreferences
-      await prefs.setString('excel_save_path', pickedPath);
-
-      // التحقق من نجاح الحفظ
-      final File savedFile = File(pickedPath);
-      if (await savedFile.exists() && await savedFile.length() > 0) {
+    // ===== التحقق من النجاح =====
+    if (await targetFile.exists() && await targetFile.length() > 0) {
+      // نعيد قراءة الملف للتأكد من أن البيانات كتبت
+      final writtenBytes = await targetFile.readAsBytes();
+      if (writtenBytes.length == fileBytes.length) {
         setState(() {
           _gradedStudents += 1;
           _secretIdResult = "سيظهر هنا الرقم السري";
           _gradeController.clear();
           _isScanningActive = false;
-          _selectedFilePath = pickedPath;
         });
-        _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $pickedPath");
+        _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $currentPath");
       } else {
-        _showSnackBar("❌ فشل في حفظ الملف");
+        _showSnackBar("⚠️ تم الحفظ ولكن حجم الملف غير متطابق!");
       }
-
-    } catch (e) {
-      _showSnackBar("❌ خطأ في الحفظ: $e");
-      print('خطأ الحفظ: $e');
-    } finally {
-      setState(() { _isLoading = false; });
+    } else {
+      _showSnackBar("❌ فشل حفظ الملف!");
     }
-  }
 
+  } catch (e) {
+    _showSnackBar("❌ خطأ في الحفظ: $e");
+    print('خطأ الحفظ: $e');
+  } finally {
+    setState(() { _isLoading = false; });
+  }
+}
+      
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
       context: context,
