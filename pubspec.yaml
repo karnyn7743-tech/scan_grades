@@ -33,6 +33,12 @@ dependencies:
   
   # اختيار مسار الملفات
   path_provider: ^2.1.3
+ 
+  # لتوليد QR Codes
+  qr: ^3.0.0       
+
+  # لعرض QR Codes في الواجهة (اختياري) 
+  qr_flutter: ^4.1.0  
   
 dev_dependencies:
   flutter_test:
