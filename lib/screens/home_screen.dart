@@ -1,107 +1,21 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'generate_qr_screen.dart';
 import 'scan_qr_screen.dart';
 import 'grade_entry_screen.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  // ===================== دالة المسار العام لمجلد Downloads =====================
-  Future<String> _getGradesDirectoryPath() async {
-    final Directory? downloadsDir = await getDownloadsDirectory();
-    if (downloadsDir == null) {
-      throw Exception('لا يمكن الوصول إلى مجلد Downloads');
-    }
-    // استخدام المسار العام مباشرة
-    final String path = '${downloadsDir.path}/درجات الطلاب';
-    final Directory dir = Directory(path);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return path;
-  }
-
-  // ===================== طلب الصلاحيات =====================
-  Future<void> _requestPermissions() async {
-    await Permission.storage.request();
-    await Permission.manageExternalStorage.request();
-  }
-
-  // ===================== اختيار ملف Excel ونسخه إلى مجلد Downloads =====================
-  Future<void> _pickExcelFile() async {
-    await _requestPermissions();
-
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls'],
-      );
-
-      if (result == null || result.files.single.path == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('لم يتم اختيار ملف')),
-        );
-        return;
-      }
-
-      final String sourcePath = result.files.single.path!;
-      final String fileName = result.files.single.name;
-
-      // الحصول على مجلد Downloads/درجات الطلاب
-      final String gradesDir = await _getGradesDirectoryPath();
-      final String targetPath = '$gradesDir/$fileName';
-
-      // حذف الملف القديم إذا كان موجوداً
-      if (await File(targetPath).exists()) {
-        await File(targetPath).delete();
-      }
-
-      // نسخ الملف إلى مجلد Downloads
-      await File(sourcePath).copy(targetPath);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✅ تم نسخ الملف إلى: $targetPath'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ خطأ: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.lightBlue.shade50,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('نظام إدارة الدرجات'),
-        backgroundColor: Colors.lightBlue.shade300,
+        backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.folder_open),
-            onPressed: _pickExcelFile,
-            tooltip: 'اختيار ملف Excel',
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
@@ -112,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
               context,
               title: 'تكوين QR Code للأرقام السرية للطلاب',
               icon: Icons.qr_code,
-              color: Colors.lightBlue.shade700,
+              color: Theme.of(context).primaryColor,
               onPressed: () {
                 Navigator.push(
                   context,
@@ -125,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
               context,
               title: 'قراءة الـ QR Code للطلاب',
               icon: Icons.qr_code_scanner,
-              color: Colors.lightBlue.shade600,
+              color: Theme.of(context).primaryColor,
               onPressed: () {
                 Navigator.push(
                   context,
@@ -138,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
               context,
               title: 'إدخال الدرجات من أوراق الإجابة',
               icon: Icons.edit_note,
-              color: Colors.lightBlue.shade800,
+              color: Theme.of(context).primaryColor,
               onPressed: () {
                 Navigator.push(
                   context,
