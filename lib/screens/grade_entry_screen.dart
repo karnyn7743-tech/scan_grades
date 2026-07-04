@@ -9,7 +9,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
-// تعريف هيكل المناطق المقصوصة (خارج الـ State)
 class _ImageRegions {
   final Uint8List? leftRegion;
   final Uint8List? centerRegion;
@@ -25,7 +24,6 @@ class GradeEntryScreen extends StatefulWidget {
 }
 
 class _GradeEntryScreenState extends State<GradeEntryScreen> {
-  // ===================== متغيرات الحالة =====================
   String _fileName = "لم يتم اختيار ملف الكنترول بعد";
   String? _selectedFilePath;
   List<String> _subjects = [];
@@ -49,7 +47,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   px.Excel? _excelInstance;
 
-  // ===================== دالة المسار الموحد =====================
+  // ===================== دالة المسار العام لمجلد Downloads =====================
   Future<String> _getGradesDirectoryPath() async {
     final Directory? downloadsDir = await getDownloadsDirectory();
     if (downloadsDir == null) {
@@ -63,7 +61,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     return path;
   }
 
-  // ===================== تحميل آخر ملف مستخدم =====================
   Future<void> _loadLastExcelFile() async {
     try {
       final String gradesDir = await _getGradesDirectoryPath();
@@ -86,12 +83,11 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== دورة الحياة =====================
   @override
   void initState() {
     super.initState();
     _requestPermissions();
-    _loadLastExcelFile(); // تحميل آخر ملف مستخدم تلقائياً
+    _loadLastExcelFile();
   }
 
   @override
@@ -102,7 +98,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     super.dispose();
   }
 
-  // ===================== الصلاحيات =====================
   Future<void> _requestPermissions() async {
     await Permission.storage.request();
     await Permission.camera.request();
@@ -111,7 +106,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== تحليل ملف Excel =====================
   Future<void> _parseExcelFile(String filePath) async {
     try {
       final bytes = await File(filePath).readAsBytes();
@@ -148,7 +142,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== اختيار ملف Excel ونسخه إلى المجلد الموحد =====================
   Future<void> _pickAndParseExcel() async {
     await _requestPermissions();
     setState(() { _isLoading = true; });
@@ -163,19 +156,14 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         final String sourcePath = result.files.single.path!;
         final String fileName = result.files.single.name;
 
-        // الحصول على المجلد الموحد
         final String gradesDir = await _getGradesDirectoryPath();
         final String targetPath = '$gradesDir/$fileName';
 
-        // حذف الملف القديم إذا كان موجوداً
         if (await File(targetPath).exists()) {
           await File(targetPath).delete();
         }
-
-        // نسخ الملف إلى المجلد الموحد
         await File(sourcePath).copy(targetPath);
 
-        // تحليل الملف المنسوخ
         await _parseExcelFile(targetPath);
 
         _showSnackBar('✅ تم نسخ الملف إلى: $targetPath');
@@ -189,7 +177,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== معالجة الأرقام العربية =====================
   String _convertArabicHindiDigits(String input) {
     const arabicDigits = {
       '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
@@ -208,7 +195,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     return match?.group(0) ?? '';
   }
 
-  // ===================== قص الصورة إلى مناطق =====================
   Future<_ImageRegions?> _cropImageRegions(Uint8List imageBytes, Size imageSize) async {
     try {
       final img.Image? fullImage = img.decodeImage(imageBytes);
@@ -252,7 +238,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== معالجة الصورة الملتقطة =====================
   Future<void> _processCapturedImage(BarcodeCapture capture) async {
     if (capture.barcodes.isEmpty || capture.barcodes.first.rawValue == null) return;
 
@@ -276,7 +261,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       return;
     }
 
-    // 1. قراءة رقم المادة من المنطقة اليمنى
     String subjectCode = '';
     if (regions.rightRegion != null) {
       final rightText = await _recognizeTextFromBytes(regions.rightRegion!);
@@ -284,7 +268,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       print('📚 رقم المادة المقروء: $subjectCode');
     }
 
-    // 2. قراءة الدرجة من المنطقة اليسرى
     String gradeText = '';
     if (regions.leftRegion != null) {
       final leftText = await _recognizeTextFromBytes(regions.leftRegion!);
@@ -292,7 +275,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       print('⭐ الدرجة المقروءة: $gradeText');
     }
 
-    // 3. التحقق من مطابقة رقم المادة
     if (_selectedSubject == null) {
       _showSnackBar("⚠️ يرجى اختيار المادة أولاً");
       if (_isScanningActive) await _cameraController.start();
@@ -310,7 +292,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       return;
     }
 
-    // 4. عرض الدرجة المقروءة
     if (gradeText.isNotEmpty) {
       setState(() {
         _gradeController.text = gradeText;
@@ -325,7 +306,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== حفظ الدرجة في Excel (في المسار الموحد) =====================
   Future<void> _saveGradeToExcel() async {
     if (_excelInstance == null || _selectedFilePath == null) {
       _showSnackBar("⚠️ خطأ: لم يتم تحميل ملف إكسيل بعد!");
@@ -339,7 +319,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       bool targetFound = false;
       int subjectColumnIndex = 4 + _subjects.indexOf(_selectedSubject!);
 
-      // البحث عن الطالب
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
         var cellD = sheet.cell(px.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value;
 
@@ -375,7 +354,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         return;
       }
 
-      // ترميز الملف
       final List<int>? fileBytesList = _excelInstance!.encode();
       if (fileBytesList == null) {
         _showSnackBar("❌ فشل في ترميز الملف");
@@ -384,12 +362,11 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
       }
       final Uint8List fileBytes = Uint8List.fromList(fileBytesList);
 
-      // ========== استخدام المسار الموحد ==========
+      // الحفظ مباشرة في مجلد Downloads/درجات الطلاب
       final String gradesDir = await _getGradesDirectoryPath();
       final String fileName = File(_selectedFilePath!).path.split('/').last;
       final String finalPath = '$gradesDir/$fileName';
 
-      // حفظ الملف مباشرة في المسار الموحد
       final File finalFile = File(finalPath);
       if (await finalFile.exists()) {
         await finalFile.delete();
@@ -406,7 +383,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
         });
         _showSnackBar("✅ تم حفظ الدرجة بنجاح في: $finalPath");
       } else {
-        _showSnackBar("❌ فشل حفظ الملف في المسار الموحد!");
+        _showSnackBar("❌ فشل حفظ الملف!");
       }
 
     } catch (e) {
@@ -417,7 +394,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
     }
   }
 
-  // ===================== أدوات مساعدة =====================
   void _showDialogAlert({required String title, required String message, required bool shouldCloseCamera}) {
     showDialog(
       context: context,
@@ -516,7 +492,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
               child: Text(_fileName, style: TextStyle(color: textColor), textAlign: TextAlign.center),
             ),
             const SizedBox(height: 12),
-
             Align(
               alignment: Alignment.centerRight,
               child: Text("اختر المادة :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
@@ -550,7 +525,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
             Align(
               alignment: Alignment.centerRight,
               child: Text("الرقم السري :", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
@@ -571,7 +545,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
             Row(
               children: [
                 Expanded(
@@ -627,7 +600,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
               ],
             ),
             const SizedBox(height: 20),
-
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: _isScanningActive ? Colors.red : Colors.green,
@@ -640,7 +612,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
               ),
             ),
             const SizedBox(height: 8),
-
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent,
@@ -655,7 +626,6 @@ class _GradeEntryScreenState extends State<GradeEntryScreen> {
                     ),
             ),
             const SizedBox(height: 20),
-
             Container(
               width: double.infinity,
               height: 250,
