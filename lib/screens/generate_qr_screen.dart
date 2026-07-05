@@ -73,7 +73,7 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls', 'xlsm, 'xlsb],
+        allowedExtensions: ['xlsx', 'xls', 'xlsm', 'xlsb'],
       );
 
       if (result != null && result.files.single.path != null) {
