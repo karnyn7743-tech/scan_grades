@@ -15,7 +15,7 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('نظام الكنترول للأتمتة المصغرة للإمتحانات'),
+        title: const Text('كنترول الأتمتة المصغرة للإمتحانات'),
         centerTitle: true,
         actions: [
           // ===== زر تبديل الوضع =====
