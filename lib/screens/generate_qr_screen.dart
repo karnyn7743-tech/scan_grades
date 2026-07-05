@@ -73,7 +73,7 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls'],
+        allowedExtensions: ['xlsx', 'xls', 'xlsm, 'xlsb],
       );
 
       if (result != null && result.files.single.path != null) {
@@ -253,7 +253,7 @@ class _GenerateQRScreenState extends State<GenerateQRScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('تكوين QR Codes'),
+        title: const Text('تكوين رموز استجابة سريعة للطلاب'),
         backgroundColor: Colors.lightBlue.shade300,
         foregroundColor: Colors.white,
       ),
