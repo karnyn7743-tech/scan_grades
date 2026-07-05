@@ -71,7 +71,7 @@ Future<void> _loadLastExcelFile() async {
 
     final List<FileSystemEntity> files = await dir.list().toList();
     for (var entity in files) {
-      if (entity is File && (entity.path.endsWith('.xlsx') || entity.path.endsWith('.xls'))) {
+      if (entity is File && (entity.path.endsWith('.xlsx') || entity.path.endsWith('.xls')|| entity.path.endsWith('.xlsm')|| entity.path.endsWith('.xlsb'))) {
         setState(() {
           _selectedFilePath = entity.path; // تحديث المسار هنا
           _fileName = entity.path.split('/').last;
@@ -152,7 +152,7 @@ Future<void> _pickAndParseExcel() async {
   try {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xls', 'xlsm, 'xlsb],
+      allowedExtensions: ['xlsx', 'xls', 'xlsm', 'xlsb'],
     );
 
     if (result != null && result.files.single.path != null) {
