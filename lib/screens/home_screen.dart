@@ -15,7 +15,7 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('نظام إدارة الدرجات'),
+        title: const Text('نظام الكنترول للأتمتة المصغرة للإمتحانات'),
         centerTitle: true,
         actions: [
           // ===== زر تبديل الوضع =====
@@ -36,7 +36,7 @@ class HomeScreen extends StatelessWidget {
           children: [
             _buildMainButton(
               context,
-              title: 'تكوين QR Code للأرقام السرية للطلاب',
+              title: 'تكوين رموز إستجابة سريعة للطلاب',
               icon: Icons.qr_code,
               color: Theme.of(context).primaryColor,
               onPressed: () {
@@ -49,7 +49,7 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 20),
             _buildMainButton(
               context,
-              title: 'قراءة الـ QR Code للطلاب',
+              title: 'قراءة رموز الإستجابة السريعة للطلاب',
               icon: Icons.qr_code_scanner,
               color: Theme.of(context).primaryColor,
               onPressed: () {
