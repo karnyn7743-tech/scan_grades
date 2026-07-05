@@ -36,7 +36,7 @@ class _ScanQRScreenState extends State<ScanQRScreen> {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls'],
+        allowedExtensions: ['xlsx', 'xls', 'xlsm, 'xlsb],
       );
 
       if (result != null && result.files.single.path != null) {
