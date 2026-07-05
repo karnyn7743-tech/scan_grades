@@ -48,12 +48,15 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-  flutter_launcher_icons: ^0.13.1 # تأكد من استخدام آخر إصدار
-  flutter_launcher_icons:
-   android: "launcher_icon"
-   ios: true
-   image_path: "assets/icon/app_icon.png"
-   min_sdk_android: 21 # حدد الحد الأدنى للـ SDK الخاص بمشروعك
+  flutter_launcher_icons: ^0.14.4   # ✅ الإصدار هنا فقط (مرة واحدة)
 
 flutter:
   uses-material-design: true
+
+# ⬇️ التكوين هنا في الجذر (خارج dev_dependencies) ⬇️
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+
