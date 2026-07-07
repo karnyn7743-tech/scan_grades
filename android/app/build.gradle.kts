@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.correcting_papers_withcode"
+    namespace = "com.example.scanner_grades_withcode"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
