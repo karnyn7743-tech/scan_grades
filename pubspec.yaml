@@ -18,7 +18,7 @@ dependencies:
   permission_handler: ^11.3.1
   
   # اكتشاف الأجهزة عبر الشبكة المحلية (mDNS / NSD)
-  nsd: ^2.4.0
+  nsd: ^5.0.1
   
   # التخزين الآمن لمعرفات الأجهزة الموثوقة
   flutter_secure_storage: ^9.0.0
