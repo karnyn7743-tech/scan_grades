@@ -1,4 +1,4 @@
-package com.example.scanner_grades_withcode
+package com.example.wifi_p2p_app
 
 import io.flutter.embedding.android.FlutterActivity
 
