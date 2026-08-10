@@ -38,12 +38,16 @@ class _HomeScreenState extends State<HomeScreen> {
     // 2. إعلان وجود الجهاز على الشبكة محلياً
     await _discoveryService.startBroadcasting(localPort);
 
-    // 3. لبحث عن الأجهزة الأخرى متصلة بنفس الراوتر
-    await _discoveryService.startDiscovery((deviceId, host, port) async {
+    // 3. البحث عن الأجهزة الأخرى المتصلة بنفس الشبكة
+    await _discoveryService.startDiscovery((service) async {
       final myId = await IdentityService.getOrCreateDeviceId();
-      if (deviceId != myId) { // تجاهل هذا الجهاز نفسه
+      final deviceName = service.name ?? 'Unknown';
+      final host = service.host ?? '';
+      final port = service.port ?? 4040;
+
+      if (deviceName != myId && host.isNotEmpty) { // تجاهل الجهاز نفسه
         setState(() {
-          _discoveredDevices[deviceId] = {
+          _discoveredDevices[deviceName] = {
             'host': host,
             'port': port,
           };
