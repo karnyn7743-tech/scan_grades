@@ -1,13 +1,13 @@
-import 'package:nsd/nsd.dart';
+import 'package:nsd/nsd.dart' as nsd;
 
 class NetworkDiscoveryService {
-  Discovery? _discovery;
-  Registration? _registration;
+  nsd.Discovery? _discovery;
+  nsd.Registration? _registration;
 
   // بدء بث وجود الجهاز على الشبكة
   Future<void> startBroadcasting(int port) async {
-    _registration = await register(
-      const Service(
+    _registration = await nsd.register(
+      const nsd.Service(
         name: 'LocalChatDevice',
         type: '_localchat._tcp',
         port: 4040,
@@ -15,9 +15,9 @@ class NetworkDiscoveryService {
     );
   }
 
-  // بدء البحث عن الأجهزة القريبة
-  Future<void> startDiscovery(Function(Service service) onServiceFound) async {
-    _discovery = await startDiscovery('_localchat._tcp');
+  // بدء البحث عن الأجهزة القريبة (تم تغيير اسم الدالة المباشرة إلى startListening)
+  Future<void> startListening(Function(nsd.Service service) onServiceFound) async {
+    _discovery = await nsd.startDiscovery('_localchat._tcp');
     _discovery?.addListener(() {
       final services = _discovery?.services ?? [];
       for (var service in services) {
@@ -29,10 +29,10 @@ class NetworkDiscoveryService {
   // إيقاف الخدمة والبث
   Future<void> stop() async {
     if (_discovery != null) {
-      await stopDiscovery(_discovery!);
+      await nsd.stopDiscovery(_discovery!);
     }
     if (_registration != null) {
-      await unregister(_registration!);
+      await nsd.unregister(_registration!);
     }
   }
 }
