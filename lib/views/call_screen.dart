@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/webrtc_signaling_service.dart';
 
-
 class CallScreen extends StatefulWidget {
   final WebRTCSignalingService signalingService;
   final String targetHost;
@@ -26,35 +25,49 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  CallState _currentState = CallState.calling;
+  bool _isMuted = false;
 
   @override
   void initState() {
     super.initState();
-    _initRenderers();
+    _initRenderersAndStart();
   }
 
-  Future<void> _initRenderers() async {
+  Future<void> _initRenderersAndStart() async {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
-    widget.signalingService.onLocalStreamReady = (stream) {
-      setState(() {
-        _localRenderer.srcObject = stream;
-      });
-    };
+    await widget.signalingService.initialize(
+      onLocalStream: (stream) {
+        setState(() {
+          _localRenderer.srcObject = stream;
+        });
+      },
+      onRemoteStream: (stream) {
+        setState(() {
+          _remoteRenderer.srcObject = stream;
+        });
+      },
+    );
 
-    widget.signalingService.onRemoteStreamReady = (stream) {
-      setState(() {
-        _remoteRenderer.srcObject = stream;
-      });
-    };
+    // بدء طلب الاتصال
+    await widget.signalingService.createAndSendOffer(
+      widget.targetHost,
+      widget.targetPort,
+    );
+  }
 
-    widget.signalingService.onCallStateChanged = (state) {
-      setState(() {
-        _currentState = state;
-      });
-    };
+  void _toggleMute() {
+    setState(() {
+      _isMuted = !_isMuted;
+    });
+  }
+
+  Future<void> _endCall() async {
+    await widget.signalingService.dispose();
+    if (mounted) {
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -68,70 +81,59 @@ class _CallScreenState extends State<CallScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(widget.callerName),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: Stack(
         children: [
-          // عرض فيديو الشخص البعيد
-          if (widget.isVideo)
-            Positioned.fill(
-              child: RTCVideoView(
-                _remoteRenderer,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-              ),
-            ),
-
-          // عرض الكاميرا المحلية في مربع صغير
-          if (widget.isVideo)
-            Positioned(
-              top: 40,
-              right: 20,
-              width: 100,
-              height: 150,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: RTCVideoView(
-                  _localRenderer,
-                  mirror: true,
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                ),
-              ),
-            ),
-
-          // تفاصيل المتصل والحالة
-          Positioned(
-            top: 60,
-            left: 20,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.callerName,
-                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _currentState == CallState.connected
-                      ? 'متصل الآن (Local P2P)'
-                      : 'جاري الاتصال عبر الواي فاي...',
-                  style: const TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-              ],
-            ),
+          // عرض فيديو الطرف الآخر
+          Positioned.fill(
+            child: _remoteRenderer.srcObject != null
+                ? RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+                : const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
           ),
 
-          // زر إنهاء المكالمة
+          // عرض فيديو الكاميرا المحلية في الزاوية
+          if (widget.isVideo)
+            Positioned(
+              right: 16,
+              top: 16,
+              width: 100,
+              height: 150,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: RTCVideoView(_localRenderer, mirror: true),
+              ),
+            ),
+
+          // أزرار التحكم في أسفل الشاشة
           Positioned(
-            bottom: 40,
+            bottom: 30,
             left: 0,
             right: 0,
-            child: Center(
-              child: FloatingActionButton(
-                backgroundColor: Colors.red,
-                child: const Icon(Icons.call_end, color: Colors.white, size: 30),
-                onPressed: () async {
-                  await widget.signalingService.hangUp(widget.targetHost, widget.targetPort);
-                  Navigator.pop(context);
-                },
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                FloatingActionButton(
+                  heroTag: 'btn_mute',
+                  backgroundColor: _isMuted ? Colors.orange : Colors.white24,
+                  onPressed: _toggleMute,
+                  child: Icon(_isMuted ? Icons.mic_off : Icons.mic, color: Colors.white),
+                ),
+                FloatingActionButton(
+                  heroTag: 'btn_hangup',
+                  backgroundColor: Colors.red,
+                  onPressed: _endCall,
+                  child: const Icon(Icons.call_end, color: Colors.white),
+                ),
+              ],
             ),
           ),
         ],
