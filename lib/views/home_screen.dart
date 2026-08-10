@@ -39,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _discoveryService.startBroadcasting(localPort);
 
     // 3. البحث عن الأجهزة الأخرى المتصلة بنفس الشبكة
-    await _discoveryService.startDiscovery((service) async {
+    await _discoveryService.startListening((service) async {
       final myId = await IdentityService.getOrCreateDeviceId();
       final deviceName = service.name ?? 'Unknown';
       final host = service.host ?? '';
