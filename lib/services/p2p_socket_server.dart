@@ -14,7 +14,7 @@ class P2PSocketServer {
     _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
 
     _server?.listen((Socket clientSocket) {
-      clientSocket.transform(utf8.decoder).listen((data) async {
+      clientSocket.cast<List<int>>().transform(utf8.decoder).listen((data) async {
         try {
           final json = jsonDecode(data);
           final String type = json['type'] ?? 'MESSAGE';
