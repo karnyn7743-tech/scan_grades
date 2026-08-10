@@ -5,7 +5,7 @@ import 'identity_service.dart';
 class P2PSocketServer {
   ServerSocket? _server;
 
-  // بدء الاستماع للرسائل والطلبات الواردة على منفذ محلي (مثلاً 4040)
+  // بدء الاستماع للرسائل والطلبات الواردة
   Future<void> startServer(
     int port, {
     required Function(String callerId, String callerName, Socket socket) onRequestConnection,
@@ -15,33 +15,45 @@ class P2PSocketServer {
 
     _server?.listen((Socket clientSocket) {
       clientSocket.transform(utf8.decoder).listen((data) async {
-        final json = jsonDecode(data);
-        final String type = json['type'];
-        final String senderId = json['senderId'];
+        try {
+          final json = jsonDecode(data);
+          final String type = json['type'] ?? 'MESSAGE';
+          final String senderId = json['senderId'] ?? '';
 
-        // التأكد أولاً: هل هذا الجهاز محظور؟
-        if (await IdentityService.isBlocked(senderId)) {
-          clientSocket.destroy(); // إسقاط الاتصال فوراً
-          return;
-        }
-
-        if (type == 'CONNECT_REQUEST') {
-          // جهاز جديد يتصل أو يحاول التخمين -> عرض إشعار القبول/الرفض
-          final String callerName = json['senderName'];
-          onRequestConnection(senderId, callerName, clientSocket);
-        } else if (type == 'MESSAGE') {
-          // التأكد من أن الجهاز موثوق مسبقاً قبل استقبال الرسالة
-          if (await IdentityService.isTrusted(senderId)) {
-            onMessageReceived(senderId, json['content']);
+          // التأكد أولاً: هل هذا الجهاز محظور؟
+          if (senderId.isNotEmpty && await IdentityService.isBlocked(senderId)) {
+            clientSocket.destroy();
+            return;
           }
+
+          if (type == 'CONNECT_REQUEST') {
+            final String callerName = json['senderName'] ?? 'جهاز غير معروف';
+            onRequestConnection(senderId, callerName, clientSocket);
+          } else if (type == 'MESSAGE') {
+            onMessageReceived(senderId, json['content'] ?? data);
+          }
+        } catch (e) {
+          // التعامل مع النصوص المباشرة أو إشارات WebRTC التي قد لا تكون JSON معقد
+          onMessageReceived('unknown', data);
         }
       });
     });
   }
 
-  // إرسال طلب تعرّف لجهاز آخر (يتضمن اسم الجهاز للطرف الآخر للقبول)
+  // إرسال نص أو بيانات استاتيكياً لجميع الشاشات (الشات والإشارات)
+  static Future<void> sendMessage(String targetHost, int targetPort, String message) async {
+    try {
+      final socket = await Socket.connect(targetHost, targetPort, timeout: const Duration(seconds: 3));
+      socket.write(message);
+      await socket.flush();
+      await socket.close();
+    } catch (e) {
+      // التعامل مع فشل الاتصال بالشبكة
+    }
+  }
+
+  // إرسال طلب تعرّف لجهاز آخر
   static Future<void> sendConnectRequest(String targetHost, int targetPort) async {
-    final socket = await Socket.connect(targetHost, targetPort);
     final myId = await IdentityService.getOrCreateDeviceId();
     final myName = await IdentityService.getDeviceName();
 
@@ -51,9 +63,7 @@ class P2PSocketServer {
       'senderName': myName,
     });
 
-    socket.write(payload);
-    await socket.flush();
-    await socket.close();
+    await sendMessage(targetHost, targetPort, payload);
   }
 
   void stop() {
