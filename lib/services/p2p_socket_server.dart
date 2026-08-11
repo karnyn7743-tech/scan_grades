@@ -1,69 +1,52 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
-import 'identity_service.dart';
 
 class P2PSocketServer {
   ServerSocket? _server;
+  
+  // بث الرسائل للواجهات (Stream Controller)
+  static final StreamController<String> _messageStreamController = StreamController<String>.broadcast();
+  static Stream<String> get messageStream => _messageStreamController.stream;
 
-  // بدء الاستماع للرسائل والطلبات الواردة
+  // بدء خادم الاستماع المحلي
   Future<void> startServer(
     int port, {
     required Function(String callerId, String callerName, Socket socket) onRequestConnection,
     required Function(String senderId, String message) onMessageReceived,
   }) async {
-    _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
-
-    _server?.listen((Socket clientSocket) {
-      clientSocket.cast<List<int>>().transform(utf8.decoder).listen((data) async {
-        try {
-          final json = jsonDecode(data);
-          final String type = json['type'] ?? 'MESSAGE';
-          final String senderId = json['senderId'] ?? '';
-
-          // التأكد أولاً: هل هذا الجهاز محظور؟
-          if (senderId.isNotEmpty && await IdentityService.isBlocked(senderId)) {
-            clientSocket.destroy();
-            return;
-          }
-
-          if (type == 'CONNECT_REQUEST') {
-            final String callerName = json['senderName'] ?? 'جهاز غير معروف';
-            onRequestConnection(senderId, callerName, clientSocket);
-          } else if (type == 'MESSAGE') {
-            onMessageReceived(senderId, json['content'] ?? data);
-          }
-        } catch (e) {
-          // التعامل مع النصوص المباشرة أو إشارات WebRTC التي قد لا تكون JSON معقد
-          onMessageReceived('unknown', data);
-        }
-      });
-    });
-  }
-
-  // إرسال نص أو بيانات استاتيكياً لجميع الشاشات (الشات والإشارات)
-  static Future<void> sendMessage(String targetHost, int targetPort, String message) async {
     try {
-      final socket = await Socket.connect(targetHost, targetPort, timeout: const Duration(seconds: 3));
-      socket.write(message);
-      await socket.flush();
-      await socket.close();
+      _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
+      _server?.listen((Socket clientSocket) {
+        clientSocket.listen((data) {
+          String message = String.fromCharCodes(data).trim();
+          
+          // إرسال البيانات فوراً إلى الشاشة المفتوحة
+          _messageStreamController.add(message);
+          onMessageReceived(clientSocket.remoteAddress.address, message);
+        });
+      });
     } catch (e) {
-      // التعامل مع فشل الاتصال بالشبكة
+      print("خطأ أثناء تشغيل السيرفر: $e");
     }
   }
 
-  // إرسال طلب تعرّف لجهاز آخر
-  static Future<void> sendConnectRequest(String targetHost, int targetPort) async {
-    final myId = await IdentityService.getOrCreateDeviceId();
-    final myName = await IdentityService.getDeviceName();
+  // دالة إرسال الرسائل الاستاتيكية المطلوبة من ChatDetailScreen
+  static Future<bool> sendMessageToHost(String host, int port, String message) async {
+    try {
+      Socket socket = await Socket.connect(host, port, timeout: const Duration(seconds: 3));
+      socket.write(message);
+      await socket.flush();
+      await socket.close();
+      return true;
+    } catch (e) {
+      print("فشل إرسال الرسالة إلى $host:$port -> $e");
+      return false;
+    }
+  }
 
-    final payload = jsonEncode({
-      'type': 'CONNECT_REQUEST',
-      'senderId': myId,
-      'senderName': myName,
-    });
-
-    await sendMessage(targetHost, targetPort, payload);
+  // إرسال طلب معرفة لجهاز آخر
+  static Future<bool> sendConnectRequest(String host, int port) async {
+    return await sendMessageToHost(host, port, "CONNECT_REQUEST");
   }
 
   void stop() {
