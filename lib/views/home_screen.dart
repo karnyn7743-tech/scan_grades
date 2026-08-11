@@ -120,13 +120,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ListView.builder(
                     itemCount: _discoveredDevices.length,
                     itemBuilder: (context, index) {
-                      String deviceId = _discoveredDevices.keys.elementAt(index);
-                      var deviceData = _discoveredDevices[deviceId]!;
-                      String host = deviceData['host'];
+                      String deviceNameKey = _discoveredDevices.keys.elementAt(index);
+                      var deviceData = _discoveredDevices[deviceNameKey]!;
+                      String targetIp = deviceData['host'] ?? '';
 
                       return FutureBuilder<bool>(
-                        // فحص التوثيق باستخدام اسم الجهاز وعنوان الـ IP معاً
-                        future: _checkIfDeviceIsTrusted(deviceId, host),
+                        future: _checkIfDeviceIsTrusted(deviceNameKey, targetIp),
                         builder: (context, snapshot) {
                           bool isTrusted = snapshot.data ?? false;
 
@@ -139,21 +138,22 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             title: Text(
-                              isTrusted ? 'جهاز موثوق ($deviceId)' : 'جهاز غير معروف',
+                              isTrusted ? 'جهاز موثوق ($deviceNameKey)' : 'جهاز غير معروف',
                             ),
-                            subtitle: Text('$host:${deviceData['port']}'),
+                            subtitle: Text('$targetIp:${deviceData['port']}'),
                             trailing: isTrusted
                                 ? IconButton(
                                     icon: const Icon(Icons.chat, color: Colors.blue),
                                     onPressed: () {
-                                      _openChatRoom(deviceId, host, deviceData['port']);
+                                      // التمرير الصريح للـ IP والمناطق لتفعيل التواصل بنجاح
+                                      _openChatRoom(deviceNameKey, targetIp, deviceData['port']);
                                     },
                                   )
                                 : ElevatedButton(
                                     child: const Text('طلب معرفة'),
                                     onPressed: () async {
                                       await P2PSocketServer.sendConnectRequest(
-                                        host,
+                                        targetIp,
                                         deviceData['port'],
                                       );
                                     },
@@ -175,13 +175,13 @@ class _HomeScreenState extends State<HomeScreen> {
     return trustedById || trustedByHost;
   }
 
-  void _openChatRoom(String deviceId, String host, int port) {
+  void _openChatRoom(String deviceId, String targetIp, int port) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ChatDetailScreen(
           targetDeviceId: deviceId,
-          targetHost: host,
+          targetHost: targetIp, // الاعتماد المباشر على عنوان IP لتنفيذ الـ Socket و WebRTC
           targetPort: port,
         ),
       ),
