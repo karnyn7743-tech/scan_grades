@@ -17,14 +17,33 @@ class _HomeScreenState extends State<HomeScreen> {
   final NetworkDiscoveryService _discoveryService = NetworkDiscoveryService();
   final P2PSocketServer _socketServer = P2PSocketServer();
   
-  // حفظ الأجهزة بـ Map مفتاحها الـ IP المباشر لمنع التكرار
   final Map<String, Map<String, dynamic>> _discoveredDevices = {};
   final int localPort = 4040;
+  List<String> _myLocalIps = [];
 
   @override
   void initState() {
     super.initState();
-    _initNetworkServices();
+    _fetchMyLocalIps().then((_) {
+      _initNetworkServices();
+    });
+  }
+
+  // الحصول على جميع عناوين الـ IP الخاصة بهذا الجهاز لمنع إظهاره في القائمة
+  Future<void> _fetchMyLocalIps() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+      _myLocalIps = interfaces
+          .expand((interface) => interface.addresses)
+          .map((addr) => addr.address)
+          .toList();
+      _myLocalIps.add('127.0.0.1');
+    } catch (e) {
+      print("خطأ في جلب عناوين IP المحلية: $e");
+    }
   }
 
   Future<void> _initNetworkServices() async {
@@ -32,7 +51,6 @@ class _HomeScreenState extends State<HomeScreen> {
       localPort,
       onRequestConnection: _handleIncomingConnectionRequest,
       onMessageReceived: (sender, msg) {
-        // إعادة بناء الواجهة لإظهار زر الشات عند موافقة الطرف الآخر
         if (msg == "CONNECT_ACCEPTED" && mounted) {
           setState(() {});
         }
@@ -46,7 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final deviceName = service.name ?? 'جهاز محلي';
       final port = service.port ?? 4040;
 
-      if (host.isNotEmpty) {
+      // تصفية حزمة البث: استبعاد الجهاز الحالي تماماً
+      if (host.isNotEmpty && !_myLocalIps.contains(host)) {
         if (!_discoveredDevices.containsKey(host)) {
           setState(() {
             _discoveredDevices[host] = {
@@ -59,7 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // معالجة طلب التعرف الوارد واستدعاء ConsentDialog
   void _handleIncomingConnectionRequest(String callerId, String callerName, Socket socket) async {
     String clientIp = socket.remoteAddress.address;
     bool isTrusted = await IdentityService.isTrusted(clientIp);
@@ -71,12 +89,8 @@ class _HomeScreenState extends State<HomeScreen> {
         callerName: callerName,
         host: clientIp,
         onAccepted: () async {
-          // تم تمرير المعاملين المطلوبة (clientIp و callerName) لمنع خطأ التجميع
           await IdentityService.trustDevice(clientIp, callerName);
-          
-          // إرسال إشعار للطرف الآخر بقبول الطلب
           await P2PSocketServer.sendMessageToHost(clientIp, localPort, "CONNECT_ACCEPTED");
-          
           if (mounted) {
             setState(() {});
           }
@@ -140,7 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             title: Text(
-                              isTrusted ? 'جهاز موثوق ($targetIp)' : 'جهاز غير معروف',
+                              isTrusted ? 'جهاز موثوق ($targetIp)' : 'جهاز غير معروف ($targetIp)',
                             ),
                             subtitle: Text('$targetIp:${deviceData['port']}'),
                             trailing: isTrusted
