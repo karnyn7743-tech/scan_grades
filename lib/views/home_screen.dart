@@ -17,7 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final NetworkDiscoveryService _discoveryService = NetworkDiscoveryService();
   final P2PSocketServer _socketServer = P2PSocketServer();
   
-  // حفظ الأجهزة بـ Map مفتاحها الـ IP المباشر لمنع أي تكرار
+  // حفظ الأجهزة بـ Map مفتاحها الـ IP المباشر لمنع التكرار
   final Map<String, Map<String, dynamic>> _discoveredDevices = {};
   final int localPort = 4040;
 
@@ -31,7 +31,12 @@ class _HomeScreenState extends State<HomeScreen> {
     await _socketServer.startServer(
       localPort,
       onRequestConnection: _handleIncomingConnectionRequest,
-      onMessageReceived: (sender, msg) {}, // المعالجة تتم داخل شاشة المحادثة
+      onMessageReceived: (sender, msg) {
+        // إذا وافق الطرف الآخر على الطلب، نقوم بإعادة بناء الواجهة لإظهار زر الشات
+        if (msg == "CONNECT_ACCEPTED" && mounted) {
+          setState(() {});
+        }
+      },
     );
 
     await _discoveryService.startBroadcasting(localPort);
@@ -42,7 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final port = service.port ?? 4040;
 
       if (host.isNotEmpty) {
-        // حظر تكرار الجهاز بفلترة عنوان الـ IP الحقيقي فقط
         if (!_discoveredDevices.containsKey(host)) {
           setState(() {
             _discoveredDevices[host] = {
@@ -55,18 +59,27 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  // معالجة طلب التعرف الوارد واستدعاء ConsentDialog
   void _handleIncomingConnectionRequest(String callerId, String callerName, Socket socket) async {
     String clientIp = socket.remoteAddress.address;
-    bool isTrusted = await IdentityService.isTrusted(callerId) || await IdentityService.isTrusted(clientIp);
-    
+    bool isTrusted = await IdentityService.isTrusted(clientIp);
+
     if (!isTrusted && mounted) {
       showConsentDialog(
         context: context,
         callerId: callerId,
         callerName: callerName,
         host: clientIp,
-        onAccepted: () {
-          setState(() {});
+        onAccepted: () async {
+          // 1. حفظ الجهاز في قائمة الموثوقين محلياً
+          await IdentityService.trustDevice(clientIp);
+          
+          // 2. إرسال إشعار للطرف الآخر بقبول الطلب
+          await P2PSocketServer.sendMessageToHost(clientIp, localPort, "CONNECT_ACCEPTED");
+          
+          if (mounted) {
+            setState(() {}); // تحديث الواجهة لإظهار أيقونة الشات
+          }
         },
       );
     }
@@ -140,10 +153,22 @@ class _HomeScreenState extends State<HomeScreen> {
                                 : ElevatedButton(
                                     child: const Text('طلب معرفة'),
                                     onPressed: () async {
-                                      await P2PSocketServer.sendConnectRequest(
+                                      String myId = await IdentityService.getOrCreateDeviceId();
+                                      bool sent = await P2PSocketServer.sendConnectRequest(
                                         targetIp,
                                         deviceData['port'],
+                                        myId,
                                       );
+
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(sent
+                                                ? 'تم إرسال طلب التعرف إلى $targetIp'
+                                                : 'تعذر الاتصال بالجهاز $targetIp'),
+                                          ),
+                                        );
+                                      }
                                     },
                                   ),
                           );
