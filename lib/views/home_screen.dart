@@ -17,7 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final NetworkDiscoveryService _discoveryService = NetworkDiscoveryService();
   final P2PSocketServer _socketServer = P2PSocketServer();
   
-  // مفتاح القائمة هو IP الجهاز لمنع التكرار نهائياً
+  // حفظ الأجهزة بـ Map مفتاحها الـ IP المباشر لمنع أي تكرار
   final Map<String, Map<String, dynamic>> _discoveredDevices = {};
   final int localPort = 4040;
 
@@ -31,7 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _socketServer.startServer(
       localPort,
       onRequestConnection: _handleIncomingConnectionRequest,
-      onMessageReceived: _handleIncomingMessage,
+      onMessageReceived: (sender, msg) {}, // المعالجة تتم داخل شاشة المحادثة
     );
 
     await _discoveryService.startBroadcasting(localPort);
@@ -41,10 +41,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final deviceName = service.name ?? 'جهاز محلي';
       final port = service.port ?? 4040;
 
-      // تجميع الأجهزة حسب الـ IP لترشيح التكرارات
       if (host.isNotEmpty) {
-        final myIp = await IdentityService.getDeviceName(); // أو IP المحلي
-        if (host != myIp) {
+        // حظر تكرار الجهاز بفلترة عنوان الـ IP الحقيقي فقط
+        if (!_discoveredDevices.containsKey(host)) {
           setState(() {
             _discoveredDevices[host] = {
               'name': deviceName,
@@ -69,15 +68,6 @@ class _HomeScreenState extends State<HomeScreen> {
         onAccepted: () {
           setState(() {});
         },
-      );
-    }
-  }
-
-  void _handleIncomingMessage(String senderId, String message) {
-    // عدم إظهار الإشعار إذا كانت الرسالة عبارة عن إشارات اتصال WebRTC
-    if (mounted && !message.contains('"type":"offer"') && !message.contains('"type":"answer"')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('رسالة من $senderId: $message')),
       );
     }
   }
@@ -122,7 +112,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemBuilder: (context, index) {
                       String targetIp = _discoveredDevices.keys.elementAt(index);
                       var deviceData = _discoveredDevices[targetIp]!;
-                      String deviceName = deviceData['name'];
 
                       return FutureBuilder<bool>(
                         future: IdentityService.isTrusted(targetIp),
@@ -145,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ? IconButton(
                                     icon: const Icon(Icons.chat, color: Colors.blue),
                                     onPressed: () {
-                                      _openChatRoom(deviceName, targetIp, deviceData['port']);
+                                      _openChatRoom(targetIp, targetIp, deviceData['port']);
                                     },
                                   )
                                 : ElevatedButton(
