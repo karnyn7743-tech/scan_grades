@@ -32,7 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
       localPort,
       onRequestConnection: _handleIncomingConnectionRequest,
       onMessageReceived: (sender, msg) {
-        // إذا وافق الطرف الآخر على الطلب، نقوم بإعادة بناء الواجهة لإظهار زر الشات
+        // إعادة بناء الواجهة لإظهار زر الشات عند موافقة الطرف الآخر
         if (msg == "CONNECT_ACCEPTED" && mounted) {
           setState(() {});
         }
@@ -71,14 +71,14 @@ class _HomeScreenState extends State<HomeScreen> {
         callerName: callerName,
         host: clientIp,
         onAccepted: () async {
-          // 1. حفظ الجهاز في قائمة الموثوقين محلياً
-          await IdentityService.trustDevice(clientIp);
+          // تم تمرير المعاملين المطلوبة (clientIp و callerName) لمنع خطأ التجميع
+          await IdentityService.trustDevice(clientIp, callerName);
           
-          // 2. إرسال إشعار للطرف الآخر بقبول الطلب
+          // إرسال إشعار للطرف الآخر بقبول الطلب
           await P2PSocketServer.sendMessageToHost(clientIp, localPort, "CONNECT_ACCEPTED");
           
           if (mounted) {
-            setState(() {}); // تحديث الواجهة لإظهار أيقونة الشات
+            setState(() {});
           }
         },
       );
