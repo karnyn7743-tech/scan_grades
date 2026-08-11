@@ -45,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final host = service.host ?? '';
       final port = service.port ?? 4040;
 
-      if (deviceName != myId && host.isNotEmpty) { // تجاهل الجهاز نفسه
+      if (deviceName != myId && host.isNotEmpty) {
         setState(() {
           _discoveredDevices[deviceName] = {
             'host': host,
@@ -58,15 +58,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // معالجة طلب التعرف الوارد من جهاز آخر
   void _handleIncomingConnectionRequest(String callerId, String callerName, Socket socket) async {
-    bool isTrusted = await IdentityService.isTrusted(callerId);
+    String clientIp = socket.remoteAddress.address;
+    bool isTrusted = await IdentityService.isTrusted(callerId) || await IdentityService.isTrusted(clientIp);
     
     if (!isTrusted && mounted) {
       showConsentDialog(
         context: context,
         callerId: callerId,
         callerName: callerName,
+        host: clientIp,
         onAccepted: () {
-          setState(() {}); // تحديث الواجهة عند القبول
+          setState(() {}); // إعادة بناء الواجهة فور القبول لإظهار زر الشات
         },
       );
     }
@@ -120,9 +122,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemBuilder: (context, index) {
                       String deviceId = _discoveredDevices.keys.elementAt(index);
                       var deviceData = _discoveredDevices[deviceId]!;
+                      String host = deviceData['host'];
 
                       return FutureBuilder<bool>(
-                        future: IdentityService.isTrusted(deviceId),
+                        // فحص التوثيق باستخدام اسم الجهاز وعنوان الـ IP معاً
+                        future: _checkIfDeviceIsTrusted(deviceId, host),
                         builder: (context, snapshot) {
                           bool isTrusted = snapshot.data ?? false;
 
@@ -137,19 +141,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             title: Text(
                               isTrusted ? 'جهاز موثوق ($deviceId)' : 'جهاز غير معروف',
                             ),
-                            subtitle: Text('${deviceData['host']}:${deviceData['port']}'),
+                            subtitle: Text('$host:${deviceData['port']}'),
                             trailing: isTrusted
                                 ? IconButton(
                                     icon: const Icon(Icons.chat, color: Colors.blue),
                                     onPressed: () {
-                                      _openChatRoom(deviceId, deviceData['host'], deviceData['port']);
+                                      _openChatRoom(deviceId, host, deviceData['port']);
                                     },
                                   )
                                 : ElevatedButton(
                                     child: const Text('طلب معرفة'),
                                     onPressed: () async {
                                       await P2PSocketServer.sendConnectRequest(
-                                        deviceData['host'],
+                                        host,
                                         deviceData['port'],
                                       );
                                     },
@@ -163,6 +167,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  Future<bool> _checkIfDeviceIsTrusted(String deviceId, String host) async {
+    bool trustedById = await IdentityService.isTrusted(deviceId);
+    bool trustedByHost = await IdentityService.isTrusted(host);
+    return trustedById || trustedByHost;
   }
 
   void _openChatRoom(String deviceId, String host, int port) {
