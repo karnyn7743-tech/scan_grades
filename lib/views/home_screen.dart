@@ -17,7 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final NetworkDiscoveryService _discoveryService = NetworkDiscoveryService();
   final P2PSocketServer _socketServer = P2PSocketServer();
   
-  // قائمة الأجهزة المكتشفة حالياً بالشبكة المحلية
+  // مفتاح القائمة هو IP الجهاز لمنع التكرار نهائياً
   final Map<String, Map<String, dynamic>> _discoveredDevices = {};
   final int localPort = 4040;
 
@@ -28,35 +28,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initNetworkServices() async {
-    // 1. تشغيل خادم الاستماع للرسائل والطلبات الواردة
     await _socketServer.startServer(
       localPort,
       onRequestConnection: _handleIncomingConnectionRequest,
       onMessageReceived: _handleIncomingMessage,
     );
 
-    // 2. إعلان وجود الجهاز على الشبكة محلياً
     await _discoveryService.startBroadcasting(localPort);
 
-    // 3. البحث عن الأجهزة الأخرى المتصلة بنفس الشبكة
     await _discoveryService.startListening((service) async {
-      final myId = await IdentityService.getOrCreateDeviceId();
-      final deviceName = service.name ?? 'Unknown';
       final host = service.host ?? '';
+      final deviceName = service.name ?? 'جهاز محلي';
       final port = service.port ?? 4040;
 
-      if (deviceName != myId && host.isNotEmpty) {
-        setState(() {
-          _discoveredDevices[deviceName] = {
-            'host': host,
-            'port': port,
-          };
-        });
+      // تجميع الأجهزة حسب الـ IP لترشيح التكرارات
+      if (host.isNotEmpty) {
+        final myIp = await IdentityService.getDeviceName(); // أو IP المحلي
+        if (host != myIp) {
+          setState(() {
+            _discoveredDevices[host] = {
+              'name': deviceName,
+              'port': port,
+            };
+          });
+        }
       }
     });
   }
 
-  // معالجة طلب التعرف الوارد من جهاز آخر
   void _handleIncomingConnectionRequest(String callerId, String callerName, Socket socket) async {
     String clientIp = socket.remoteAddress.address;
     bool isTrusted = await IdentityService.isTrusted(callerId) || await IdentityService.isTrusted(clientIp);
@@ -68,16 +67,17 @@ class _HomeScreenState extends State<HomeScreen> {
         callerName: callerName,
         host: clientIp,
         onAccepted: () {
-          setState(() {}); // إعادة بناء الواجهة فور القبول لإظهار زر الشات
+          setState(() {});
         },
       );
     }
   }
 
   void _handleIncomingMessage(String senderId, String message) {
-    if (mounted) {
+    // عدم إظهار الإشعار إذا كانت الرسالة عبارة عن إشارات اتصال WebRTC
+    if (mounted && !message.contains('"type":"offer"') && !message.contains('"type":"answer"')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('رسالة جديدة: $message')),
+        SnackBar(content: Text('رسالة من $senderId: $message')),
       );
     }
   }
@@ -120,12 +120,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ListView.builder(
                     itemCount: _discoveredDevices.length,
                     itemBuilder: (context, index) {
-                      String deviceNameKey = _discoveredDevices.keys.elementAt(index);
-                      var deviceData = _discoveredDevices[deviceNameKey]!;
-                      String targetIp = deviceData['host'] ?? '';
+                      String targetIp = _discoveredDevices.keys.elementAt(index);
+                      var deviceData = _discoveredDevices[targetIp]!;
+                      String deviceName = deviceData['name'];
 
                       return FutureBuilder<bool>(
-                        future: _checkIfDeviceIsTrusted(deviceNameKey, targetIp),
+                        future: IdentityService.isTrusted(targetIp),
                         builder: (context, snapshot) {
                           bool isTrusted = snapshot.data ?? false;
 
@@ -138,15 +138,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             title: Text(
-                              isTrusted ? 'جهاز موثوق ($deviceNameKey)' : 'جهاز غير معروف',
+                              isTrusted ? 'جهاز موثوق ($targetIp)' : 'جهاز غير معروف',
                             ),
                             subtitle: Text('$targetIp:${deviceData['port']}'),
                             trailing: isTrusted
                                 ? IconButton(
                                     icon: const Icon(Icons.chat, color: Colors.blue),
                                     onPressed: () {
-                                      // التمرير الصريح للـ IP والمناطق لتفعيل التواصل بنجاح
-                                      _openChatRoom(deviceNameKey, targetIp, deviceData['port']);
+                                      _openChatRoom(deviceName, targetIp, deviceData['port']);
                                     },
                                   )
                                 : ElevatedButton(
@@ -169,19 +168,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<bool> _checkIfDeviceIsTrusted(String deviceId, String host) async {
-    bool trustedById = await IdentityService.isTrusted(deviceId);
-    bool trustedByHost = await IdentityService.isTrusted(host);
-    return trustedById || trustedByHost;
-  }
-
-  void _openChatRoom(String deviceId, String targetIp, int port) {
+  void _openChatRoom(String deviceName, String targetIp, int port) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ChatDetailScreen(
-          targetDeviceId: deviceId,
-          targetHost: targetIp, // الاعتماد المباشر على عنوان IP لتنفيذ الـ Socket و WebRTC
+          targetDeviceId: deviceName,
+          targetHost: targetIp,
           targetPort: port,
         ),
       ),
