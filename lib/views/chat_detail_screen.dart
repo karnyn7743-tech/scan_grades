@@ -25,7 +25,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
-    // الاشتراك بـ Stream الاستماع المباشر للرسائل الواردة
     P2PSocketServer.messageStream.listen((data) {
       _handleIncomingData(data);
     });
@@ -34,14 +33,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void _handleIncomingData(String rawData) {
     try {
       final decoded = jsonDecode(rawData);
-      // إذا كانت الرسالة تخص إشارات WebRTC للمكالمات الصوتية والمرئية
-      if (decoded.containsKey('sdp') || decoded.containsKey('candidate')) {
-        // تمريرها إلى WebRTC Helper
+      if (decoded.containsKey('type') && (decoded['type'] == 'offer' || decoded['type'] == 'answer' || decoded['type'] == 'candidate')) {
+        // معالجة إشارات WebRTC للاتصال الصوتي والفيديو
         return;
       }
     } catch (_) {
-      // إذا كانت نص عادي (مراسلة نصية)
-      if (mounted) {
+      if (mounted && rawData != "CONNECT_ACCEPTED") {
         setState(() {
           _messages.add({'sender': widget.targetHost, 'text': rawData});
         });
@@ -53,14 +50,39 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     String text = _msgController.text.trim();
     if (text.isEmpty) return;
 
-    // 1. إرسال عبر الـ Socket مباشرة إلى הـ IP
-    await P2PSocketServer.sendMessageToHost(widget.targetHost, widget.targetPort, text);
+    bool success = await P2PSocketServer.sendMessageToHost(
+      widget.targetHost,
+      widget.targetPort,
+      text,
+    );
 
-    // 2. تحديث قائمة المراسلات في الشاشة
-    setState(() {
-      _messages.add({'sender': 'me', 'text': text});
+    if (success) {
+      setState(() {
+        _messages.add({'sender': 'me', 'text': text});
+      });
+      _msgController.clear();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل إرسال الرسالة، تأكد من اتصال الجهاز الآخر بنفس الشبكة')),
+        );
+      }
+    }
+  }
+
+  void _startCall({required bool isVideo}) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(isVideo ? 'جاري بدء مكالمة الفيديو...' : 'جاري بدء المكالمة الصوتية...'),
+      ),
+    );
+    // إرسال طلب البدء لتبادل إشارات WebRTC عبر الـ IP
+    final callSignal = jsonEncode({
+      'type': 'call_request',
+      'isVideo': isVideo,
+      'caller': widget.targetHost,
     });
-    _msgController.clear();
+    await P2PSocketServer.sendMessageToHost(widget.targetHost, widget.targetPort, callSignal);
   }
 
   @override
@@ -70,16 +92,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         title: Text(widget.targetHost),
         actions: [
           IconButton(
-            icon: const Icon(Icons.phone),
-            onPressed: () {
-              // بدء مكالمة صوتية محلياً
-            },
+            icon: const Icon(Icons.phone, color: Colors.green),
+            onPressed: () => _startCall(isVideo: false),
           ),
           IconButton(
-            icon: const Icon(Icons.videocam),
-            onPressed: () {
-              // بدء مكالمة فيديو محلياً
-            },
+            icon: const Icon(Icons.videocam, color: Colors.blue),
+            onPressed: () => _startCall(isVideo: true),
           ),
         ],
       ),
