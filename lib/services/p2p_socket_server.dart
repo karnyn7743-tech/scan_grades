@@ -4,11 +4,9 @@ import 'dart:io';
 class P2PSocketServer {
   ServerSocket? _server;
   
-  // بث الرسائل للواجهات (Stream Controller)
   static final StreamController<String> _messageStreamController = StreamController<String>.broadcast();
   static Stream<String> get messageStream => _messageStreamController.stream;
 
-  // بدء خادم الاستماع المحلي
   Future<void> startServer(
     int port, {
     required Function(String callerId, String callerName, Socket socket) onRequestConnection,
@@ -19,34 +17,44 @@ class P2PSocketServer {
       _server?.listen((Socket clientSocket) {
         clientSocket.listen((data) {
           String message = String.fromCharCodes(data).trim();
-          
-          // إرسال البيانات فوراً إلى الشاشة المفتوحة
-          _messageStreamController.add(message);
-          onMessageReceived(clientSocket.remoteAddress.address, message);
+          String remoteIp = clientSocket.remoteAddress.address;
+
+          if (message.startsWith("CONNECT_REQUEST")) {
+            // استقبال طلب المعرفة وإطلاق حوار الموافقة (ConsentDialog)
+            List<String> parts = message.split("|");
+            String callerName = parts.length > 1 ? parts[1] : "جهاز محلي";
+            onRequestConnection(remoteIp, callerName, clientSocket);
+          } else if (message == "CONNECT_ACCEPTED") {
+            // إضافة IP الجهاز لقائمة الموثوقين فوراً
+            onMessageReceived(remoteIp, "ACCEPTED");
+          } else {
+            // رسالة عادية أو إشارة WebRTC
+            _messageStreamController.add(message);
+            onMessageReceived(remoteIp, message);
+          }
         });
       });
     } catch (e) {
-      print("خطأ أثناء تشغيل السيرفر: $e");
+      print("خطأ في تشغيل السيرفر: $e");
     }
   }
 
-  // دالة إرسال الرسائل الاستاتيكية المطلوبة من ChatDetailScreen
   static Future<bool> sendMessageToHost(String host, int port, String message) async {
     try {
-      Socket socket = await Socket.connect(host, port, timeout: const Duration(seconds: 3));
+      Socket socket = await Socket.connect(host, port, timeout: const Duration(seconds: 4));
       socket.write(message);
       await socket.flush();
+      await Future.delayed(const Duration(milliseconds: 300)); // انتظام البث قبل الإغلاق
       await socket.close();
       return true;
     } catch (e) {
-      print("فشل إرسال الرسالة إلى $host:$port -> $e");
+      print("خطأ في إرسال البيانات إلى $host: $e");
       return false;
     }
   }
 
-  // إرسال طلب معرفة لجهاز آخر
-  static Future<bool> sendConnectRequest(String host, int port) async {
-    return await sendMessageToHost(host, port, "CONNECT_REQUEST");
+  static Future<bool> sendConnectRequest(String host, int port, String myName) async {
+    return await sendMessageToHost(host, port, "CONNECT_REQUEST|$myName");
   }
 
   void stop() {
