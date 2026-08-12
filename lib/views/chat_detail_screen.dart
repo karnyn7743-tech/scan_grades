@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dartg:convert';
 import 'package:flutter/material.dart';
 import '../services/p2p_socket_server.dart';
 
@@ -31,73 +31,82 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _handleIncomingData(String rawData) {
+    if (!mounted) return;
+
     try {
+      // محاولة فك الشفرة كبيانات JSON (مثل إشارات الفيديوهات أو الرسائل المُهيكلة)
       final decoded = jsonDecode(rawData);
-      if (decoded.containsKey('type') && (decoded['type'] == 'offer' || decoded['type'] == 'answer' || decoded['type'] == 'candidate')) {
-        // معالجة إشارات WebRTC للاتصال الصوتي والفيديو
-        return;
+
+      if (decoded is Map<String, dynamic>) {
+        if (decoded.containsKey('type') &&
+            (decoded['type'] == 'offer' ||
+                decoded['type'] == 'answer' ||
+                decoded['type'] == 'candidate')) {
+          // معالجة إشارات الاتصال هنا إن وجدت
+          return;
+        }
+
+        // في حال كان النص مشفراً داخل هيكل JSON
+        if (decoded.containsKey('text')) {
+          setState(() {
+            _messages.add({
+              'sender': widget.targetDeviceId,
+              'text': decoded['text'].toString(),
+            });
+          });
+          return;
+        }
       }
     } catch (_) {
-      if (mounted && rawData != "CONNECT_ACCEPTED") {
-        setState(() {
-          _messages.add({'sender': widget.targetHost, 'text': rawData});
+      // إذا لم يكن البيانات من نوع JSON (نص عادي مباشر)
+    }
+
+    // إضافة النص المباشر القادم إلى القائمة
+    if (rawData != "CONNECT_ACCEPTED" && rawData.isNotEmpty) {
+      setState(() {
+        _messages.add({
+          'sender': widget.targetDeviceId,
+          'text': rawData,
         });
-      }
+      });
     }
   }
 
   void _sendMessage() async {
-    String text = _msgController.text.trim();
+    final text = _msgController.text.trim();
     if (text.isEmpty) return;
 
-    bool success = await P2PSocketServer.sendMessageToHost(
+    // إضافة الرسالة لقائمة الرسائل الخاصة بي
+    setState(() {
+      _messages.add({
+        'sender': 'me',
+        'text': text,
+      });
+    });
+
+    _msgController.clear();
+
+    // إرسال النص إلى الطرف الآخر عبر السوكيت
+    await P2PSocketServer.sendMessageToHost(
       widget.targetHost,
       widget.targetPort,
       text,
     );
-
-    if (success) {
-      setState(() {
-        _messages.add({'sender': 'me', 'text': text});
-      });
-      _msgController.clear();
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('فشل إرسال الرسالة، تأكد من اتصال الجهاز الآخر بنفس الشبكة')),
-        );
-      }
-    }
-  }
-
-  void _startCall({required bool isVideo}) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(isVideo ? 'جاري بدء مكالمة الفيديو...' : 'جاري بدء المكالمة الصوتية...'),
-      ),
-    );
-    // إرسال طلب البدء لتبادل إشارات WebRTC عبر الـ IP
-    final callSignal = jsonEncode({
-      'type': 'call_request',
-      'isVideo': isVideo,
-      'caller': widget.targetHost,
-    });
-    await P2PSocketServer.sendMessageToHost(widget.targetHost, widget.targetPort, callSignal);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.targetHost),
+        title: Text(widget.targetDeviceId),
         actions: [
           IconButton(
-            icon: const Icon(Icons.phone, color: Colors.green),
-            onPressed: () => _startCall(isVideo: false),
+            icon: const Icon(Icons.phone),
+            onPressed: () {},
           ),
           IconButton(
-            icon: const Icon(Icons.videocam, color: Colors.blue),
-            onPressed: () => _startCall(isVideo: true),
+            icon: const Icon(Icons.videocam),
+            onPressed: () {},
           ),
         ],
       ),
@@ -108,24 +117,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               padding: const EdgeInsets.all(12),
               itemCount: _messages.length,
               itemBuilder: (context, index) {
-                bool isMe = _messages[index]['sender'] == 'me';
+                final msg = _messages[index];
+                final isMe = msg['sender'] == 'me';
+
                 return Align(
                   alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: isMe ? Colors.blue.shade100 : Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(8),
+                      color: isMe ? Colors.blue.shade200 : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Text(_messages[index]['text'] ?? ''),
+                    child: Text(
+                      msg['text'] ?? '',
+                      style: const TextStyle(fontSize: 16, color: Colors.black87),
+                    ),
                   ),
                 );
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Colors.white,
             child: Row(
               children: [
                 Expanded(
@@ -137,6 +152,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.send, color: Colors.blue),
                   onPressed: _sendMessage,
