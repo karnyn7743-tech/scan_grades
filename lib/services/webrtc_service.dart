@@ -6,7 +6,6 @@ import 'p2p_socket_server.dart';
 class WebRTCService {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
-  MediaStream? _remoteStream;
 
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
@@ -17,11 +16,21 @@ class WebRTCService {
   }
 
   Future<void> createPeerConnectionConfig(String targetHost, int targetPort) async {
-    // إغلاق الاتصال السابق إن وجد لضمان إعادة التوصيل بنجاح
     await _closePeerConnection();
 
-    Map<String, dynamic> configuration = {'iceServers': []};
+    Map<String, dynamic> configuration = {
+      'iceServers': [],
+      'sdpSemantics': 'unified-plan'
+    };
+
     _peerConnection = await createPeerConnection(configuration);
+
+    // ربط مسار الفيديو الوارد بالرندر الخاص بالطرف البعيد فور استقباله
+    _peerConnection?.onTrack = (RTCTrackEvent event) {
+      if (event.track.kind == 'video' && event.streams.isNotEmpty) {
+        remoteRenderer.srcObject = event.streams[0];
+      }
+    };
 
     _peerConnection?.onIceCandidate = (candidate) {
       if (candidate != null) {
@@ -32,12 +41,6 @@ class WebRTCService {
         P2PSocketServer.sendMessageToHost(targetHost, targetPort, msg);
       }
     };
-
-    _peerConnection?.onTrack = (event) {
-      if (event.track.kind == 'video') {
-        remoteRenderer.srcObject = event.streams[0];
-      }
-    };
   }
 
   Future<void> makeCall(String targetHost, int targetPort, bool isVideo) async {
@@ -46,7 +49,7 @@ class WebRTCService {
 
     Map<String, dynamic> mediaConstraints = {
       'audio': true,
-      'video': isVideo ? {'facingMode': 'user'} : false,
+      'video': isVideo ? {'facingMode': 'user', 'width': 640, 'height': 480} : false,
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
@@ -75,7 +78,7 @@ class WebRTCService {
 
     Map<String, dynamic> mediaConstraints = {
       'audio': true,
-      'video': isVideo ? {'facingMode': 'user'} : false,
+      'video': isVideo ? {'facingMode': 'user', 'width': 640, 'height': 480} : false,
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
@@ -115,7 +118,6 @@ class WebRTCService {
     await _peerConnection?.addCandidate(candidate);
   }
 
-  // إرسال إشارة إغلاق الخط وإغلاق الموارد محليةً
   Future<void> hangup(String targetHost, int targetPort) async {
     try {
       final msg = jsonEncode({'type': 'hangup'});
@@ -129,9 +131,8 @@ class WebRTCService {
     await _localStream?.dispose();
     _localStream = null;
 
-    _remoteStream?.getTracks().forEach((track) => track.stop());
-    await _remoteStream?.dispose();
-    _remoteStream = null;
+    localRenderer.srcObject = null;
+    remoteRenderer.srcObject = null;
 
     await _peerConnection?.close();
     _peerConnection = null;
@@ -139,8 +140,6 @@ class WebRTCService {
 
   Future<void> dispose() async {
     await _closePeerConnection();
-    localRenderer.srcObject = null;
-    remoteRenderer.srcObject = null;
     await localRenderer.dispose();
     await remoteRenderer.dispose();
   }
