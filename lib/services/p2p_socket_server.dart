@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 class P2PSocketServer {
@@ -16,35 +17,37 @@ class P2PSocketServer {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
       _server?.listen((Socket clientSocket) {
         clientSocket.listen((data) {
-          String message = String.fromCharCodes(data).trim();
+          // فك تشفير البيانات المتمثلة ببايتات UTF-8 بدقة لمنع تشوه الحروف العربية
+          String message = utf8.decode(data, allowMalformed: true).trim();
           String remoteIp = clientSocket.remoteAddress.address;
 
           if (message.startsWith("CONNECT_REQUEST")) {
-            // استقبال طلب المعرفة وإطلاق حوار الموافقة (ConsentDialog)
             List<String> parts = message.split("|");
             String callerName = parts.length > 1 ? parts[1] : "جهاز محلي";
             onRequestConnection(remoteIp, callerName, clientSocket);
           } else if (message == "CONNECT_ACCEPTED") {
-            // إضافة IP الجهاز لقائمة الموثوقين فوراً
-            onMessageReceived(remoteIp, "ACCEPTED");
+            onMessageReceived(remoteIp, "CONNECT_ACCEPTED");
           } else {
-            // رسالة عادية أو إشارة WebRTC
             _messageStreamController.add(message);
             onMessageReceived(remoteIp, message);
           }
         });
       });
     } catch (e) {
-      print("خطأ في تشغيل السيرفر: $e");
+      print("خطأ أثناء تشغيل السيرفر: $e");
     }
   }
 
   static Future<bool> sendMessageToHost(String host, int port, String message) async {
     try {
       Socket socket = await Socket.connect(host, port, timeout: const Duration(seconds: 4));
-      socket.write(message);
+      
+      // تحويل النص العربي إلى UTF-8 Bytes وإرساله مباشرة
+      List<int> bytes = utf8.encode(message);
+      socket.add(bytes);
+      
       await socket.flush();
-      await Future.delayed(const Duration(milliseconds: 300)); // انتظام البث قبل الإغلاق
+      await Future.delayed(const Duration(milliseconds: 300));
       await socket.close();
       return true;
     } catch (e) {
