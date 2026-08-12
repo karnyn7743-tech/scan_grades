@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/p2p_socket_server.dart';
+import '../services/webrtc_service.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String targetDeviceId;
@@ -21,6 +23,9 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final TextEditingController _msgController = TextEditingController();
   final List<Map<String, String>> _messages = [];
+  final WebRTCService _webrtcService = WebRTCService();
+
+  bool _inCall = false;
 
   @override
   void initState() {
@@ -30,27 +35,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
   }
 
-  void _handleIncomingData(String rawData) {
+  void _handleIncomingData(String rawData) async {
     if (!mounted) return;
 
     try {
       final decoded = jsonDecode(rawData);
 
-      if (decoded is Map<String, dynamic>) {
-        if (decoded.containsKey('type') &&
-            (decoded['type'] == 'offer' ||
-                decoded['type'] == 'answer' ||
-                decoded['type'] == 'candidate')) {
-          return;
-        }
+      if (decoded is Map<String, dynamic> && decoded.containsKey('type')) {
+        String type = decoded['type'];
 
-        if (decoded.containsKey('text')) {
-          setState(() {
-            _messages.add({
-              'sender': widget.targetDeviceId,
-              'text': decoded['text'].toString(),
-            });
-          });
+        if (type == 'offer') {
+          setState(() { _inCall = true; });
+          await _webrtcService.handleOfferAndAnswer(
+            decoded['sdp'],
+            widget.targetHost,
+            widget.targetPort,
+            decoded['isVideo'] ?? false,
+          );
+          setState(() {});
+          return;
+        } else if (type == 'answer') {
+          await _webrtcService.handleAnswer(decoded['sdp']);
+          return;
+        } else if (type == 'candidate') {
+          await _webrtcService.handleCandidate(decoded['candidate']);
           return;
         }
       }
@@ -66,24 +74,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
+  void _startCall({required bool isVideo}) async {
+    setState(() { _inCall = true; });
+    await _webrtcService.makeCall(widget.targetHost, widget.targetPort, isVideo);
+    setState(() {});
+  }
+
+  void _endCall() {
+    _webrtcService.dispose();
+    setState(() { _inCall = false; });
+  }
+
   void _sendMessage() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
 
     setState(() {
-      _messages.add({
-        'sender': 'me',
-        'text': text,
-      });
+      _messages.add({'sender': 'me', 'text': text});
     });
 
     _msgController.clear();
-
     await P2PSocketServer.sendMessageToHost(
       widget.targetHost,
       widget.targetPort,
       text,
     );
+  }
+
+  @override
+  void dispose() {
+    _webrtcService.dispose();
+    super.dispose();
   }
 
   @override
@@ -93,17 +114,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         title: Text(widget.targetDeviceId),
         actions: [
           IconButton(
-            icon: const Icon(Icons.phone),
-            onPressed: () {},
+            icon: const Icon(Icons.phone, color: Colors.green),
+            onPressed: () => _startCall(isVideo: false),
           ),
           IconButton(
-            icon: const Icon(Icons.videocam),
-            onPressed: () {},
+            icon: const Icon(Icons.videocam, color: Colors.blue),
+            onPressed: () => _startCall(isVideo: true),
           ),
         ],
       ),
       body: Column(
         children: [
+          if (_inCall)
+            Container(
+              height: 200,
+              color: Colors.black,
+              child: Row(
+                children: [
+                  Expanded(child: RTCVideoView(_webrtcService.localRenderer, mirror: true)),
+                  Expanded(child: RTCVideoView(_webrtcService.remoteRenderer)),
+                  IconButton(
+                    icon: const Icon(Icons.call_end, color: Colors.red, size: 30),
+                    onPressed: _endCall,
+                  )
+                ],
+              ),
+            ),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(12),
