@@ -17,6 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final NetworkDiscoveryService _discoveryService = NetworkDiscoveryService();
   final P2PSocketServer _socketServer = P2PSocketServer();
   
+  // حفظ البيانات باستعمال IP المباشر فقط كمفتاح رئيسي
   final Map<String, Map<String, dynamic>> _discoveredDevices = {};
   final int localPort = 4040;
   List<String> _myLocalIps = [];
@@ -49,13 +50,12 @@ class _HomeScreenState extends State<HomeScreen> {
     await _socketServer.startServer(
       localPort,
       onRequestConnection: _handleIncomingConnectionRequest,
-      onMessageReceived: (sender, msg) async {
-        // عند استلام الموافقة من الطرف الآخر
+      onMessageReceived: (senderIp, msg) async {
         if (msg == "CONNECT_ACCEPTED") {
-          // توثيق الجهاز المرسل فوراً باستعمال الـ IP والاسم
-          await IdentityService.trustDevice(sender, sender);
+          // توثيق الجهاز عبر الـ IP المباشر
+          await IdentityService.trustDevice(senderIp, senderIp);
           if (mounted) {
-            setState(() {}); // تحديث الواجهة فوراً ليتحول إلى جهاز موثوق
+            setState(() {});
           }
         }
       },
@@ -64,19 +64,32 @@ class _HomeScreenState extends State<HomeScreen> {
     await _discoveryService.startBroadcasting(localPort);
 
     await _discoveryService.startListening((service) async {
-      final host = service.host ?? '';
-      final deviceName = service.name ?? 'جهاز محلي';
-      final port = service.port ?? 4040;
+      String resolvedIp = service.host ?? '';
 
-      if (host.isNotEmpty && !_myLocalIps.contains(host)) {
-        if (!_discoveredDevices.containsKey(host)) {
-          setState(() {
-            _discoveredDevices[host] = {
-              'name': deviceName,
-              'port': port,
-              'host': host,
-            };
-          });
+      // استخراج الـ IP الصريح إذا كان المرسل قد أرسل اسم host بدلاً من IP
+      if (resolvedIp.isNotEmpty && !_myLocalIps.contains(resolvedIp)) {
+        try {
+          // تحويل اسم المضيف إلى IP إن وجد
+          final addresses = await InternetAddress.lookup(resolvedIp);
+          if (addresses.isNotEmpty) {
+            resolvedIp = addresses.first.address;
+          }
+        } catch (_) {}
+
+        // حظر إضافة الجهاز إذا كان هو نفس الجهاز الحالي
+        if (!_myLocalIps.contains(resolvedIp)) {
+          final deviceName = service.name ?? 'جهاز محلي';
+          final port = service.port ?? 4040;
+
+          if (!_discoveredDevices.containsKey(resolvedIp)) {
+            setState(() {
+              _discoveredDevices[resolvedIp] = {
+                'name': deviceName,
+                'port': port,
+                'ip': resolvedIp,
+              };
+            });
+          }
         }
       }
     });
@@ -85,9 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _handleIncomingConnectionRequest(String callerId, String callerName, Socket socket) async {
     String clientIp = socket.remoteAddress.address;
     
-    // التحقق بالـ IP وباسم المتصل
-    bool isTrusted = await IdentityService.isTrusted(clientIp) || 
-                     await IdentityService.isTrusted(callerId);
+    bool isTrusted = await IdentityService.isTrusted(clientIp);
 
     if (!isTrusted && mounted) {
       showConsentDialog(
@@ -96,11 +107,10 @@ class _HomeScreenState extends State<HomeScreen> {
         callerName: callerName,
         host: clientIp,
         onAccepted: () async {
-          // حفظ التوثيق للطرفين (الـ IP واسم الجهاز)
+          // توثيق الـ IP المباشر للطرفين
           await IdentityService.trustDevice(clientIp, callerName);
-          await IdentityService.trustDevice(callerId, callerName);
           
-          // إبلاغ الطرف الآخر بتم القبول
+          // إرسال إشارة التأكيد عبر الـ IP المباشر
           await P2PSocketServer.sendMessageToHost(clientIp, localPort, "CONNECT_ACCEPTED");
           
           if (mounted) {
@@ -116,18 +126,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _discoveryService.stop();
     _socketServer.stop();
     super.dispose();
-  }
-
-  // دالة فحص مشتركة تطابق الـ Host والـ IP
-  Future<bool> _checkDeviceTrust(String targetKey) async {
-    bool trustedByKey = await IdentityService.isTrusted(targetKey);
-    if (trustedByKey) return true;
-    
-    var data = _discoveredDevices[targetKey];
-    if (data != null && data['host'] != null) {
-      return await IdentityService.isTrusted(data['host']);
-    }
-    return false;
   }
 
   @override
@@ -161,12 +159,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ListView.builder(
                     itemCount: _discoveredDevices.length,
                     itemBuilder: (context, index) {
-                      String targetKey = _discoveredDevices.keys.elementAt(index);
-                      var deviceData = _discoveredDevices[targetKey]!;
-                      String targetHost = deviceData['host'] ?? targetKey;
+                      String targetIp = _discoveredDevices.keys.elementAt(index);
+                      var deviceData = _discoveredDevices[targetIp]!;
 
                       return FutureBuilder<bool>(
-                        future: _checkDeviceTrust(targetKey),
+                        future: IdentityService.isTrusted(targetIp),
                         builder: (context, snapshot) {
                           bool isTrusted = snapshot.data ?? false;
 
@@ -179,14 +176,16 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             title: Text(
-                              isTrusted ? 'جهاز موثوق ($targetKey)' : 'جهاز غير معروف ($targetKey)',
+                              isTrusted 
+                                  ? '${deviceData['name']} (موثوق)' 
+                                  : '${deviceData['name']} (غير معروف)',
                             ),
-                            subtitle: Text('$targetHost:${deviceData['port']}'),
+                            subtitle: Text('$targetIp:${deviceData['port']}'),
                             trailing: isTrusted
                                 ? IconButton(
                                     icon: const Icon(Icons.chat, color: Colors.blue),
                                     onPressed: () {
-                                      _openChatRoom(targetKey, targetHost, deviceData['port']);
+                                      _openChatRoom(deviceData['name'], targetIp, deviceData['port']);
                                     },
                                   )
                                 : ElevatedButton(
@@ -194,7 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     onPressed: () async {
                                       String myId = await IdentityService.getOrCreateDeviceId();
                                       bool sent = await P2PSocketServer.sendConnectRequest(
-                                        targetHost,
+                                        targetIp,
                                         deviceData['port'],
                                         myId,
                                       );
@@ -203,8 +202,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
                                             content: Text(sent
-                                                ? 'تم إرسال طلب التعرف إلى $targetKey'
-                                                : 'تعذر الاتصال بالجهاز $targetKey'),
+                                                ? 'تم إرسال طلب التعرف إلى $targetIp'
+                                                : 'تعذر الاتصال بالجهاز $targetIp'),
                                           ),
                                         );
                                       }
@@ -227,7 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (context) => ChatDetailScreen(
           targetDeviceId: deviceName,
-          targetHost: targetIp,
+          targetHost: targetIp, // يمرر الـ IP الصريح دائماً للشات
           targetPort: port,
         ),
       ),
