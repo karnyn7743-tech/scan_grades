@@ -16,12 +16,11 @@ class WebRTCService {
     await remoteRenderer.initialize();
   }
 
-  // إنشاء اتصال جديد وتكوين المسارات
   Future<void> createPeerConnectionConfig(String targetHost, int targetPort) async {
-    Map<String, dynamic> configuration = {
-      'iceServers': [] // شبكة محلية مغلقة بدون الحاجة لـ STUN/TURN
-    };
+    // إغلاق الاتصال السابق إن وجد لضمان إعادة التوصيل بنجاح
+    await _closePeerConnection();
 
+    Map<String, dynamic> configuration = {'iceServers': []};
     _peerConnection = await createPeerConnection(configuration);
 
     _peerConnection?.onIceCandidate = (candidate) {
@@ -41,7 +40,6 @@ class WebRTCService {
     };
   }
 
-  // بدء المكالمة (Caller)
   Future<void> makeCall(String targetHost, int targetPort, bool isVideo) async {
     await initializeRenderers();
     await createPeerConnectionConfig(targetHost, targetPort);
@@ -70,7 +68,6 @@ class WebRTCService {
     await P2PSocketServer.sendMessageToHost(targetHost, targetPort, msg);
   }
 
-  // استقبال وإجابة المكالمة (Receiver)
   Future<void> handleOfferAndAnswer(
       String sdp, String targetHost, int targetPort, bool isVideo) async {
     await initializeRenderers();
@@ -118,11 +115,33 @@ class WebRTCService {
     await _peerConnection?.addCandidate(candidate);
   }
 
-  void dispose() {
-    _localStream?.dispose();
-    _remoteStream?.dispose();
-    localRenderer.dispose();
-    remoteRenderer.dispose();
-    _peerConnection?.close();
+  // إرسال إشارة إغلاق الخط وإغلاق الموارد محليةً
+  Future<void> hangup(String targetHost, int targetPort) async {
+    try {
+      final msg = jsonEncode({'type': 'hangup'});
+      await P2PSocketServer.sendMessageToHost(targetHost, targetPort, msg);
+    } catch (_) {}
+    await dispose();
+  }
+
+  Future<void> _closePeerConnection() async {
+    _localStream?.getTracks().forEach((track) => track.stop());
+    await _localStream?.dispose();
+    _localStream = null;
+
+    _remoteStream?.getTracks().forEach((track) => track.stop());
+    await _remoteStream?.dispose();
+    _remoteStream = null;
+
+    await _peerConnection?.close();
+    _peerConnection = null;
+  }
+
+  Future<void> dispose() async {
+    await _closePeerConnection();
+    localRenderer.srcObject = null;
+    remoteRenderer.srcObject = null;
+    await localRenderer.dispose();
+    await remoteRenderer.dispose();
   }
 }
