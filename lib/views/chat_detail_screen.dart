@@ -1,4 +1,4 @@
-import 'dartg:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/p2p_socket_server.dart';
 
@@ -34,7 +34,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (!mounted) return;
 
     try {
-      // محاولة فك الشفرة كبيانات JSON (مثل إشارات الفيديوهات أو الرسائل المُهيكلة)
       final decoded = jsonDecode(rawData);
 
       if (decoded is Map<String, dynamic>) {
@@ -42,11 +41,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             (decoded['type'] == 'offer' ||
                 decoded['type'] == 'answer' ||
                 decoded['type'] == 'candidate')) {
-          // معالجة إشارات الاتصال هنا إن وجدت
           return;
         }
 
-        // في حال كان النص مشفراً داخل هيكل JSON
         if (decoded.containsKey('text')) {
           setState(() {
             _messages.add({
@@ -57,11 +54,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           return;
         }
       }
-    } catch (_) {
-      // إذا لم يكن البيانات من نوع JSON (نص عادي مباشر)
-    }
+    } catch (_) {}
 
-    // إضافة النص المباشر القادم إلى القائمة
     if (rawData != "CONNECT_ACCEPTED" && rawData.isNotEmpty) {
       setState(() {
         _messages.add({
@@ -76,7 +70,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
 
-    // إضافة الرسالة لقائمة الرسائل الخاصة بي
     setState(() {
       _messages.add({
         'sender': 'me',
@@ -86,7 +79,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     _msgController.clear();
 
-    // إرسال النص إلى الطرف الآخر عبر السوكيت
     await P2PSocketServer.sendMessageToHost(
       widget.targetHost,
       widget.targetPort,
