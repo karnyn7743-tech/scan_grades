@@ -44,21 +44,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       if (decoded is Map<String, dynamic> && decoded.containsKey('type')) {
         String type = decoded['type'];
 
+        // استقبال الطلب وإظهار حوار التنبيه بالجرس
         if (type == 'offer') {
-          setState(() { _inCall = true; });
-          await _webrtcService.handleOfferAndAnswer(
-            decoded['sdp'],
-            widget.targetHost,
-            widget.targetPort,
-            decoded['isVideo'] ?? false,
+          _showIncomingCallDialog(
+            isVideo: decoded['isVideo'] ?? false,
+            sdp: decoded['sdp'],
           );
-          setState(() {});
           return;
         } else if (type == 'answer') {
           await _webrtcService.handleAnswer(decoded['sdp']);
           return;
         } else if (type == 'candidate') {
           await _webrtcService.handleCandidate(decoded['candidate']);
+          return;
+        } else if (type == 'hangup') {
+          // إنهاء الخط عند الطرف الآخر عند استلام أمر الإغلاق
+          await _webrtcService.dispose();
+          if (mounted) {
+            setState(() { _inCall = false; });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('تم إنهاء المكالمة من الطرف الآخر')),
+            );
+          }
           return;
         }
       }
@@ -74,15 +81,54 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
+  // تنبيه وجرس للمكالمة الواردة
+  void _showIncomingCallDialog({required bool isVideo, required String sdp}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('مكالمة ${isVideo ? "فيديو" : "صوتية"} واردة'),
+          content: Text('يتصل بك: ${widget.targetDeviceId}'),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _webrtcService.hangup(widget.targetHost, widget.targetPort);
+              },
+              child: const Text('رفض', style: TextStyle(color: Colors.red)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                setState(() { _inCall = true; });
+                await _webrtcService.handleOfferAndAnswer(
+                  sdp,
+                  widget.targetHost,
+                  widget.targetPort,
+                  isVideo,
+                );
+                setState(() {});
+              },
+              child: const Text('رد'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _startCall({required bool isVideo}) async {
     setState(() { _inCall = true; });
     await _webrtcService.makeCall(widget.targetHost, widget.targetPort, isVideo);
     setState(() {});
   }
 
-  void _endCall() {
-    _webrtcService.dispose();
-    setState(() { _inCall = false; });
+  void _endCall() async {
+    await _webrtcService.hangup(widget.targetHost, widget.targetPort);
+    if (mounted) {
+      setState(() { _inCall = false; });
+    }
   }
 
   void _sendMessage() async {
