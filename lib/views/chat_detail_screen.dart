@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/p2p_socket_server.dart';
 import '../services/webrtc_service.dart';
@@ -26,6 +27,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final WebRTCService _webrtcService = WebRTCService();
 
   bool _inCall = false;
+  bool _isVideoCall = false;
 
   @override
   void initState() {
@@ -44,7 +46,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       if (decoded is Map<String, dynamic> && decoded.containsKey('type')) {
         String type = decoded['type'];
 
-        // استقبال الطلب وإظهار حوار التنبيه بالجرس
         if (type == 'offer') {
           _showIncomingCallDialog(
             isVideo: decoded['isVideo'] ?? false,
@@ -53,18 +54,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           return;
         } else if (type == 'answer') {
           await _webrtcService.handleAnswer(decoded['sdp']);
+          if (mounted) setState(() {});
           return;
         } else if (type == 'candidate') {
           await _webrtcService.handleCandidate(decoded['candidate']);
           return;
         } else if (type == 'hangup') {
-          // إنهاء الخط عند الطرف الآخر عند استلام أمر الإغلاق
           await _webrtcService.dispose();
           if (mounted) {
-            setState(() { _inCall = false; });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('تم إنهاء المكالمة من الطرف الآخر')),
-            );
+            setState(() {
+              _inCall = false;
+            });
           }
           return;
         }
@@ -81,27 +81,39 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  // تنبيه وجرس للمكالمة الواردة
   void _showIncomingCallDialog({required bool isVideo, required String sdp}) {
+    HapticFeedback.vibrate();
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
-          title: Text('مكالمة ${isVideo ? "فيديو" : "صوتية"} واردة'),
-          content: Text('يتصل بك: ${widget.targetDeviceId}'),
+          backgroundColor: Colors.grey.shade900,
+          title: Text(
+            'مكالمة ${isVideo ? "فيديو" : "صوتية"} واردة',
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            'يتصل بك: ${widget.targetDeviceId}',
+            style: const TextStyle(color: Colors.white70),
+          ),
           actions: [
             TextButton(
               onPressed: () async {
                 Navigator.of(context).pop();
                 await _webrtcService.hangup(widget.targetHost, widget.targetPort);
               },
-              child: const Text('رفض', style: TextStyle(color: Colors.red)),
+              child: const Text('رفض', style: TextStyle(color: Colors.redAccent, fontSize: 18)),
             ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
               onPressed: () async {
                 Navigator.of(context).pop();
-                setState(() { _inCall = true; });
+                setState(() {
+                  _inCall = true;
+                  _isVideoCall = isVideo;
+                });
                 await _webrtcService.handleOfferAndAnswer(
                   sdp,
                   widget.targetHost,
@@ -110,7 +122,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 );
                 setState(() {});
               },
-              child: const Text('رد'),
+              child: const Text('رد', style: TextStyle(color: Colors.white, fontSize: 18)),
             ),
           ],
         );
@@ -119,7 +131,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _startCall({required bool isVideo}) async {
-    setState(() { _inCall = true; });
+    setState(() {
+      _inCall = true;
+      _isVideoCall = isVideo;
+    });
     await _webrtcService.makeCall(widget.targetHost, widget.targetPort, isVideo);
     setState(() {});
   }
@@ -127,7 +142,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void _endCall() async {
     await _webrtcService.hangup(widget.targetHost, widget.targetPort);
     if (mounted) {
-      setState(() { _inCall = false; });
+      setState(() {
+        _inCall = false;
+      });
     }
   }
 
@@ -169,72 +186,126 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          if (_inCall)
-            Container(
-              height: 200,
-              color: Colors.black,
-              child: Row(
-                children: [
-                  Expanded(child: RTCVideoView(_webrtcService.localRenderer, mirror: true)),
-                  Expanded(child: RTCVideoView(_webrtcService.remoteRenderer)),
-                  IconButton(
-                    icon: const Icon(Icons.call_end, color: Colors.red, size: 30),
-                    onPressed: _endCall,
-                  )
-                ],
+          Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final msg = _messages[index];
+                    final isMe = msg['sender'] == 'me';
+
+                    return Align(
+                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isMe ? Colors.blue.shade200 : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          msg['text'] ?? '',
+                          style: const TextStyle(fontSize: 16, color: Colors.black87),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(8),
+                color: Colors.white,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _msgController,
+                        decoration: const InputDecoration(
+                          hintText: 'اكتب رسالتك هنا...',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.send, color: Colors.blue),
+                      onPressed: _sendMessage,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (_inCall) _buildFullCallOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFullCallOverlay() {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          children: [
+            if (_isVideoCall) ...[
+              Positioned.fill(
+                child: RTCVideoView(_webrtcService.remoteRenderer),
+              ),
+              Positioned(
+                right: 20,
+                top: 40,
+                width: 110,
+                height: 160,
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white, width: 2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: RTCVideoView(_webrtcService.localRenderer, mirror: true),
+                ),
+              ),
+            ] else
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.blueAccent,
+                      child: Icon(Icons.person, size: 50, color: Colors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      widget.targetDeviceId,
+                      style: const TextStyle(color: Colors.white, fontSize: 22),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'مكالمة صوتية جارية...',
+                      style: TextStyle(color: Colors.white70, fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+            Positioned(
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: FloatingActionButton(
+                  backgroundColor: Colors.red,
+                  onPressed: _endCall,
+                  child: const Icon(Icons.call_end, size: 32, color: Colors.white),
+                ),
               ),
             ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                final isMe = msg['sender'] == 'me';
-
-                return Align(
-                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: isMe ? Colors.blue.shade200 : Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      msg['text'] ?? '',
-                      style: const TextStyle(fontSize: 16, color: Colors.black87),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _msgController,
-                    decoration: const InputDecoration(
-                      hintText: 'اكتب رسالتك هنا...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.send, color: Colors.blue),
-                  onPressed: _sendMessage,
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
