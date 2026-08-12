@@ -3,7 +3,6 @@ import 'dart:io';
 import '../services/identity_service.dart';
 import '../services/network_discovery_service.dart';
 import '../services/p2p_socket_server.dart';
-import '../widgets/consent_dialog.dart';
 import 'chat_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -17,7 +16,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final NetworkDiscoveryService _discoveryService = NetworkDiscoveryService();
   final P2PSocketServer _socketServer = P2PSocketServer();
   
-  // حفظ البيانات باستعمال IP المباشر فقط كمفتاح رئيسي
   final Map<String, Map<String, dynamic>> _discoveredDevices = {};
   final int localPort = 4040;
   List<String> _myLocalIps = [];
@@ -49,16 +47,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initNetworkServices() async {
     await _socketServer.startServer(
       localPort,
-      onRequestConnection: _handleIncomingConnectionRequest,
-      onMessageReceived: (senderIp, msg) async {
-        if (msg == "CONNECT_ACCEPTED") {
-          // توثيق الجهاز عبر الـ IP المباشر
-          await IdentityService.trustDevice(senderIp, senderIp);
-          if (mounted) {
-            setState(() {});
-          }
-        }
-      },
+      onRequestConnection: (callerId, callerName, socket) {},
+      onMessageReceived: (senderIp, msg) {},
     );
 
     await _discoveryService.startBroadcasting(localPort);
@@ -66,22 +56,24 @@ class _HomeScreenState extends State<HomeScreen> {
     await _discoveryService.startListening((service) async {
       String resolvedIp = service.host ?? '';
 
-      // استخراج الـ IP الصريح إذا كان المرسل قد أرسل اسم host بدلاً من IP
-      if (resolvedIp.isNotEmpty && !_myLocalIps.contains(resolvedIp)) {
+      if (resolvedIp.isNotEmpty) {
+        // تحويل أي Hostname إلى IP حقيقي مباشر
         try {
-          // تحويل اسم المضيف إلى IP إن وجد
           final addresses = await InternetAddress.lookup(resolvedIp);
           if (addresses.isNotEmpty) {
             resolvedIp = addresses.first.address;
           }
         } catch (_) {}
 
-        // حظر إضافة الجهاز إذا كان هو نفس الجهاز الحالي
+        // استبعاد IP الجهاز الحالي
         if (!_myLocalIps.contains(resolvedIp)) {
           final deviceName = service.name ?? 'جهاز محلي';
           final port = service.port ?? 4040;
 
-          if (!_discoveredDevices.containsKey(resolvedIp)) {
+          // جعل كل جهاز جديد موثوقاً تلقائياً بدون الحاجة لضغط زر المعرفة
+          await IdentityService.trustDevice(resolvedIp, deviceName);
+
+          if (mounted) {
             setState(() {
               _discoveredDevices[resolvedIp] = {
                 'name': deviceName,
@@ -93,32 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     });
-  }
-
-  void _handleIncomingConnectionRequest(String callerId, String callerName, Socket socket) async {
-    String clientIp = socket.remoteAddress.address;
-    
-    bool isTrusted = await IdentityService.isTrusted(clientIp);
-
-    if (!isTrusted && mounted) {
-      showConsentDialog(
-        context: context,
-        callerId: callerId,
-        callerName: callerName,
-        host: clientIp,
-        onAccepted: () async {
-          // توثيق الـ IP المباشر للطرفين
-          await IdentityService.trustDevice(clientIp, callerName);
-          
-          // إرسال إشارة التأكيد عبر الـ IP المباشر
-          await P2PSocketServer.sendMessageToHost(clientIp, localPort, "CONNECT_ACCEPTED");
-          
-          if (mounted) {
-            setState(() {});
-          }
-        },
-      );
-    }
   }
 
   @override
@@ -146,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'متصل بالشبكة المحلية - جاهز لاكتشاف الأجهزة القريبة بدون إنترنت',
+                    'متصل بالشبكة المحلية - جميع الأجهزة متصلة وموثوقة تلقائياً',
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
@@ -155,62 +121,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Expanded(
             child: _discoveredDevices.isEmpty
-                ? const Center(child: Text('جاري البحث عن أجهزة متصلة بالراوتر...'))
+                ? const Center(child: Text('جاري البحث عن أجهزة متصلة بالشبكة...'))
                 : ListView.builder(
                     itemCount: _discoveredDevices.length,
                     itemBuilder: (context, index) {
                       String targetIp = _discoveredDevices.keys.elementAt(index);
                       var deviceData = _discoveredDevices[targetIp]!;
 
-                      return FutureBuilder<bool>(
-                        future: IdentityService.isTrusted(targetIp),
-                        builder: (context, snapshot) {
-                          bool isTrusted = snapshot.data ?? false;
-
-                          return ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: isTrusted ? Colors.green : Colors.grey,
-                              child: Icon(
-                                isTrusted ? Icons.person : Icons.lock_clock,
-                                color: Colors.white,
-                              ),
-                            ),
-                            title: Text(
-                              isTrusted 
-                                  ? '${deviceData['name']} (موثوق)' 
-                                  : '${deviceData['name']} (غير معروف)',
-                            ),
-                            subtitle: Text('$targetIp:${deviceData['port']}'),
-                            trailing: isTrusted
-                                ? IconButton(
-                                    icon: const Icon(Icons.chat, color: Colors.blue),
-                                    onPressed: () {
-                                      _openChatRoom(deviceData['name'], targetIp, deviceData['port']);
-                                    },
-                                  )
-                                : ElevatedButton(
-                                    child: const Text('طلب معرفة'),
-                                    onPressed: () async {
-                                      String myId = await IdentityService.getOrCreateDeviceId();
-                                      bool sent = await P2PSocketServer.sendConnectRequest(
-                                        targetIp,
-                                        deviceData['port'],
-                                        myId,
-                                      );
-
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text(sent
-                                                ? 'تم إرسال طلب التعرف إلى $targetIp'
-                                                : 'تعذر الاتصال بالجهاز $targetIp'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                                  ),
-                          );
-                        },
+                      return ListTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: Colors.green,
+                          child: Icon(Icons.person, color: Colors.white),
+                        ),
+                        title: Text('${deviceData['name']} (موثوق)'),
+                        subtitle: Text('$targetIp:${deviceData['port']}'),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.chat, color: Colors.blue, size: 28),
+                          onPressed: () {
+                            _openChatRoom(deviceData['name'], targetIp, deviceData['port']);
+                          },
+                        ),
                       );
                     },
                   ),
@@ -226,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (context) => ChatDetailScreen(
           targetDeviceId: deviceName,
-          targetHost: targetIp, // يمرر الـ IP الصريح دائماً للشات
+          targetHost: targetIp,
           targetPort: port,
         ),
       ),
