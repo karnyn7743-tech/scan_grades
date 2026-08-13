@@ -4,7 +4,15 @@ import '../services/identity_service.dart';
 import '../services/network_discovery_service.dart';
 import '../services/p2p_socket_server.dart';
 import '../services/contact_service.dart';
+import '../services/audio_helper.dart'; // 🔔 استيراد خدمة الصوت
 import 'chat_detail_screen.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+Future<void> disableBatteryOptimization() async {
+  if (await Permission.ignoreBatteryOptimizations.isDenied) {
+    await Permission.ignoreBatteryOptimizations.request();
+  }
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -24,6 +32,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // 🔋 1. طلب استثناء البطارية فور فتح الشاشة لتجنب خمول التطبيق بالخلفية
+    disableBatteryOptimization();
+
     _fetchMyLocalIps().then((_) {
       _initNetworkServices();
     });
@@ -46,19 +57,56 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initNetworkServices() async {
+    // 📞 2. تفعيل السيرفر المحلي وربط النغمات والمكالمات الواردة
     await _socketServer.startServer(
       localPort,
-      onRequestConnection: (callerId, callerName, socket) {},
-      onMessageReceived: (senderIp, msg) {},
+      onRequestConnection: (callerId, callerName, socket) async {
+        // 🔔 تشغيل نغمة الرنين فور استقبال اتصال
+        await SoundHelper.startRingtone();
+
+        // إظهار حوار مكالمة واردة
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: Text('مكالمة واردة من $callerName'),
+              content: const Text('هل تريد الرد على المكالمة؟'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    SoundHelper.stopRingtone(); // إيقاف الرنين عند الرفض
+                    Navigator.pop(ctx);
+                    socket.destroy();
+                  },
+                  child: const Text('رفض', style: TextStyle(color: Colors.red)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    SoundHelper.stopRingtone(); // إيقاف الرنين عند القبول
+                    Navigator.pop(ctx);
+                    _openChatRoom(callerId, socket.remoteAddress.address, localPort);
+                  },
+                  child: const Text('رد'),
+                ),
+              ],
+            ),
+          );
+        }
+      },
+      onMessageReceived: (senderIp, msg) {
+        // 🔔 تشغيل صوت التنبيه فور وصول رسالة جديدة
+        SoundHelper.playNotificationSound();
+      },
     );
 
+    // 🚀 3. بدء اكتشاف الأجهزة بسرعة بث UDP Broadcast
     await _discoveryService.startBroadcasting(localPort);
 
     await _discoveryService.startListening((service) async {
       String resolvedIp = service.host ?? '';
 
       if (resolvedIp.isNotEmpty) {
-        // تحويل أي Hostname إلى IP حقيقي مباشر
         try {
           final addresses = await InternetAddress.lookup(resolvedIp);
           if (addresses.isNotEmpty) {
@@ -66,12 +114,10 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         } catch (_) {}
 
-        // استبعاد IP الجهاز الحالي
         if (!_myLocalIps.contains(resolvedIp)) {
           final deviceName = service.name ?? 'جهاز محلي';
           final port = service.port ?? 4040;
 
-          // جعل كل جهاز جديد موثوقاً تلقائياً
           await IdentityService.trustDevice(resolvedIp, deviceName);
 
           if (mounted) {
@@ -90,6 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    SoundHelper.stopRingtone(); // إيقاف أي صوت متبقي
     _discoveryService.stop();
     _socketServer.stop();
     super.dispose();
@@ -174,7 +221,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     ).then((_) {
-      // إعادة بناء الصفحة عند العودة لتحديث الاسم إذا تم حفظه أو تعديله
       if (mounted) {
         setState(() {});
       }
