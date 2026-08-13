@@ -10,6 +10,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  device_info_plus: ^10.1.0
+  crypto: ^3.0.3
   
   audioplayers: ^6.0.0 # بديل أحدث ومطابق للمعايير الجديدة
   shared_preferences: ^2.2.2
