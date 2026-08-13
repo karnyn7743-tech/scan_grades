@@ -1,7 +1,6 @@
 name: wifi_p2p_app
-description: "تطبيق محادثة ومكالمات عبر الشبكة المحلية P2P بدون إنترنت"
+description: "تطبيق الاتصالات المحلي"
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
@@ -10,38 +9,18 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+  # المكتبات الأساسية
   device_info_plus: ^10.1.0
   crypto: ^3.0.3
-  
-  audioplayers: ^6.0.0 # بديل أحدث ومطابق للمعايير الجديدة
   shared_preferences: ^2.2.2
-  flutter_background_service: ^5.0.0
-  flutter_local_notifications: ^17.0.0
-  
-  # حزمة مكالمات الفيديو والصوت
-  flutter_webrtc: ^0.12.5
-  
-  # إدارة الأذونات (الكاميرا، الميكروفون، والشبكة)
-  permission_handler: ^11.3.1
-  
-  # اكتشاف الأجهزة عبر الشبكة المحلية (mDNS / NSD)
-  nsd: ^5.0.1
-  
-  # التخزين الآمن لمعرفات الأجهزة الموثوقة
-  flutter_secure_storage: ^9.0.0
-  
-  # توليد معرّف فريد للجهاز (UUID)
-  uuid: ^4.3.3
-  
-  # أيقونات إضافية للواجهة
-  cupertino_icons: ^1.0.6
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
- 
-  flutter_lints: ^3.0.0
+  # مكتبة الصوت
+  audioplayers: ^6.0.0
+  # مكتبة الأذونات (مهمة جداً للواي فاي والموقع)
+  permission_handler: ^11.0.0
 
 flutter:
   uses-material-design: true
+  
+  # 👈 هذا الجزء هو المسؤول عن استيراد ملفات الصوت
+  assets:
+    - assets/sounds/
