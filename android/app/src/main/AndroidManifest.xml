@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- أذونات الشبكة والاتصال المحلي -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -22,7 +23,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
 
-    <!-- أذونات خدمة الخلفية والإشعارات (جديد) -->
+    <!-- أذونات خدمة الخلفية والإشعارات -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -58,11 +59,12 @@
             </intent-filter>
         </activity>
         
-        <!-- تعريف خدمة الخلفية الخاصة بـ flutter_background_service (جديد) -->
+        <!-- تعريف خدمة الخلفية وتفادي التعارض مع المكتبة -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:foregroundServiceType="connectedDevice"
-            android:exported="false" />
+            android:exported="true"
+            tools:replace="android:exported" />
 
         <meta-data
             android:name="flutterEmbedding"
