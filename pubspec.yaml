@@ -20,8 +20,8 @@ dependencies:
   audioplayers: ^6.0.0
   permission_handler: ^11.0.0
 
-  # 3. خدمات الخلفية والشبكة والاتصال
-  flutter_webrtc: ^0.9.48
+  # 3. خدمات الخلفية والشبكة والاتصال (تم تحديث الإصدارات هنا لتوافق إصدارات فلاتر الجديدة)
+  flutter_webrtc: ^0.12.4
   flutter_background_service: ^5.0.0
   flutter_local_notifications: ^17.0.0
 
