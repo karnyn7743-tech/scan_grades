@@ -35,7 +35,7 @@ class BackgroundServiceHelper {
     await _notificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
-         shadowChannel(channel);
+        ?.createNotificationChannel(channel);
 
     // 2. إعداد خدمة الخلفية
     await service.configure(
@@ -118,7 +118,7 @@ class BackgroundServiceHelper {
       importance: Importance.max,
       priority: Priority.high,
       ticker: 'ticker',
-      fullScreenIntent: true, // لإظهار الشاشة كاملة إن أمكن
+      fullScreenIntent: true,
     );
 
     const NotificationDetails platformDetails =
