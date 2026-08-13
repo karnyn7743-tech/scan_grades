@@ -16,13 +16,15 @@ dependencies:
   audioplayers: ^6.0.0
   permission_handler: ^11.0.0
 
-  # 👈 إضافة المكتبتين المفقودتين هنا:
+  # مكتبات الخلفية والـ WebRTC
   flutter_webrtc: ^0.9.48
   flutter_background_service: ^5.0.0
+  
+  # 👈 أضف هذه المكتبة لحل المشكلة الحالية:
+  flutter_local_notifications: ^17.0.0
 
 flutter:
   uses-material-design: true
-  
-  # 👈 هذا الجزء هو المسؤول عن استيراد ملفات الصوت
   assets:
     - assets/sounds/
+
