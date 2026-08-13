@@ -3,6 +3,7 @@ import 'dart:io';
 import '../services/identity_service.dart';
 import '../services/network_discovery_service.dart';
 import '../services/p2p_socket_server.dart';
+import '../services/contact_service.dart';
 import 'chat_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -70,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final deviceName = service.name ?? 'جهاز محلي';
           final port = service.port ?? 4040;
 
-          // جعل كل جهاز جديد موثوقاً تلقائياً بدون الحاجة لضغط زر المعرفة
+          // جعل كل جهاز جديد موثوقاً تلقائياً
           await IdentityService.trustDevice(resolvedIp, deviceName);
 
           if (mounted) {
@@ -127,20 +128,32 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemBuilder: (context, index) {
                       String targetIp = _discoveredDevices.keys.elementAt(index);
                       var deviceData = _discoveredDevices[targetIp]!;
+                      String deviceName = deviceData['name'];
 
-                      return ListTile(
-                        leading: const CircleAvatar(
-                          backgroundColor: Colors.green,
-                          child: Icon(Icons.person, color: Colors.white),
-                        ),
-                        title: Text('${deviceData['name']} (موثوق)'),
-                        subtitle: Text('$targetIp:${deviceData['port']}'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.chat, color: Colors.blue, size: 28),
-                          onPressed: () {
-                            _openChatRoom(deviceData['name'], targetIp, deviceData['port']);
-                          },
-                        ),
+                      return FutureBuilder<String?>(
+                        future: ContactService.getContactName(deviceName),
+                        builder: (context, snapshot) {
+                          String displayName = (snapshot.hasData &&
+                                  snapshot.data != null &&
+                                  snapshot.data!.isNotEmpty)
+                              ? snapshot.data!
+                              : deviceName;
+
+                          return ListTile(
+                            leading: const CircleAvatar(
+                              backgroundColor: Colors.green,
+                              child: Icon(Icons.person, color: Colors.white),
+                            ),
+                            title: Text('$displayName (موثوق)'),
+                            subtitle: Text('$targetIp:${deviceData['port']}'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.chat, color: Colors.blue, size: 28),
+                              onPressed: () {
+                                _openChatRoom(deviceName, targetIp, deviceData['port']);
+                              },
+                            ),
+                          );
+                        },
                       );
                     },
                   ),
@@ -160,6 +173,11 @@ class _HomeScreenState extends State<HomeScreen> {
           targetPort: port,
         ),
       ),
-    );
+    ).then((_) {
+      // إعادة بناء الصفحة عند العودة لتحديث الاسم إذا تم حفظه أو تعديله
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 }
