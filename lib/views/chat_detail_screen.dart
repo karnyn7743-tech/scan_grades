@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/p2p_socket_server.dart';
 import '../services/webrtc_service.dart';
@@ -63,7 +62,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
         if (type == 'offer') {
           // تشغيل نغمة الرنين عند ورود مكالمة
-          FlutterRingtonePlayer().playRingtone(looping: true);
+          P2PSocketServer.playRingtone(loop: true);
 
           _showIncomingCallDialog(
             isVideo: decoded['isVideo'] ?? false,
@@ -71,7 +70,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           );
           return;
         } else if (type == 'answer') {
-          FlutterRingtonePlayer().stop();
+          P2PSocketServer.stopRingtone();
           await _webrtcService.handleAnswer(decoded['sdp']);
           if (mounted) setState(() {});
           return;
@@ -79,7 +78,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           await _webrtcService.handleCandidate(decoded['candidate']);
           return;
         } else if (type == 'hangup') {
-          FlutterRingtonePlayer().stop();
+          P2PSocketServer.stopRingtone();
           await _webrtcService.dispose();
           if (mounted) {
             setState(() {
@@ -92,8 +91,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     } catch (_) {}
 
     if (rawData != "CONNECT_ACCEPTED" && rawData.isNotEmpty) {
-      // تشغيل نغمة الرسالة النصية
-      FlutterRingtonePlayer().playNotification();
+      // تشغيل نغمة التنبيه عند استقبال رسالة
+      P2PSocketServer.playRingtone(loop: false);
 
       setState(() {
         _messages.add({
@@ -124,7 +123,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           actions: [
             TextButton(
               onPressed: () async {
-                FlutterRingtonePlayer().stop();
+                P2PSocketServer.stopRingtone();
                 Navigator.of(context).pop();
                 await _webrtcService.hangup(widget.targetHost, widget.targetPort);
               },
@@ -133,7 +132,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
               onPressed: () async {
-                FlutterRingtonePlayer().stop();
+                P2PSocketServer.stopRingtone();
                 Navigator.of(context).pop();
                 setState(() {
                   _inCall = true;
@@ -201,7 +200,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _endCall() async {
-    FlutterRingtonePlayer().stop();
+    P2PSocketServer.stopRingtone();
     await _webrtcService.hangup(widget.targetHost, widget.targetPort);
     if (mounted) {
       setState(() {
@@ -228,7 +227,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
-    FlutterRingtonePlayer().stop();
+    P2PSocketServer.stopRingtone();
     _webrtcService.dispose();
     super.dispose();
   }
