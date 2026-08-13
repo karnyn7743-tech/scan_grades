@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.VIBRATE" /> <!-- ⚡ للهزاز أثناء الرنين -->
 
     <!-- أذونات البلوتوث للسماعات اللاسلكية -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -23,11 +24,13 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
 
-    <!-- أذونات خدمة الخلفية والإشعارات -->
+    <!-- أذونات خدمة الخلفية والإشعارات واستثناء البطارية -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" /> <!-- ⚡ لضمان عمل الصوت في الخلفية -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" /> <!-- ⚡ لمنع خمول التطبيق في الخلفية -->
 
     <!-- تحديد الميزات الهاردويرية المطلوبة -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -44,6 +47,8 @@
             android:launchMode="singleTop"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
@@ -59,12 +64,12 @@
             </intent-filter>
         </activity>
         
-        <!-- تعريف خدمة الخلفية وتفادي التعارض مع المكتبة -->
+        <!-- تعريف خدمة الخلفية الشاملة للاتصال والصوت -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
-            android:foregroundServiceType="connectedDevice"
+            android:foregroundServiceType="connectedDevice|microphone"
             android:exported="true"
-            tools:replace="android:exported" />
+            tools:replace="android:exported,android:foregroundServiceType" />
 
         <meta-data
             android:name="flutterEmbedding"
