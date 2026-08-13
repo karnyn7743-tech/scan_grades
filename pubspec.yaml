@@ -13,10 +13,12 @@ dependencies:
   device_info_plus: ^10.1.0
   crypto: ^3.0.3
   shared_preferences: ^2.2.2
-  # مكتبة الصوت
   audioplayers: ^6.0.0
-  # مكتبة الأذونات (مهمة جداً للواي فاي والموقع)
   permission_handler: ^11.0.0
+
+  # 👈 إضافة المكتبتين المفقودتين هنا:
+  flutter_webrtc: ^0.9.48
+  flutter_background_service: ^5.0.0
 
 flutter:
   uses-material-design: true
