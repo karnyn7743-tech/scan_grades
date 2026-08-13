@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
-import 'package:device_info_plus/device_info_plus';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LicenseService {
-  // 🔑 كلمة السر الخاصة بك كمطور (غير هذه السلسلة إلى أي كلمة سر سريّة خاصة بك)
+  // 🔑 كلمة السر الخاصة بك كمطور
   static const String _secretSalt = "MyCustomAppSecret_2026_@Key";
   static const String _licenseKeyPref = "app_license_key";
 
