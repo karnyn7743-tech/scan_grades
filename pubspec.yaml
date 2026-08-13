@@ -9,22 +9,24 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # المكتبات الأساسية
+
+  # 1. مكتبات الهوية والتشفير والتخزين
   device_info_plus: ^10.1.0
   crypto: ^3.0.3
   shared_preferences: ^2.2.2
+  flutter_secure_storage: ^9.0.0
+
+  # 2. الصوت والأذونات
   audioplayers: ^6.0.0
   permission_handler: ^11.0.0
 
-  # مكتبات الخلفية والـ WebRTC
+  # 3. خدمات الخلفية والشبكة والاتصال
   flutter_webrtc: ^0.9.48
   flutter_background_service: ^5.0.0
-  
-  # 👈 أضف هذه المكتبة لحل المشكلة الحالية:
   flutter_local_notifications: ^17.0.0
 
 flutter:
   uses-material-design: true
+
   assets:
     - assets/sounds/
-
