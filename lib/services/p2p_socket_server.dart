@@ -1,12 +1,37 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:audioplayers/audioplayers.dart';
 
 class P2PSocketServer {
   ServerSocket? _server;
   
   static final StreamController<String> _messageStreamController = StreamController<String>.broadcast();
   static Stream<String> get messageStream => _messageStreamController.stream;
+
+  // مشغل الصوت للرنين والتنبيهات
+  static final AudioPlayer _audioPlayer = AudioPlayer();
+
+  /// تشغيل صوت نغمة التنبيه للرسائل أو المكالمات
+  static Future<void> playRingtone({bool loop = false}) async {
+    try {
+      await _audioPlayer.stop();
+      if (loop) {
+        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
+      } else {
+        await _audioPlayer.setReleaseMode(ReleaseMode.release);
+      }
+      // تشغيل النغمة الافتراضية
+      await _audioPlayer.play(SourceUrl('https://actions.google.com/sounds/v1/alarms/digital_watch_alarm.ogg'));
+    } catch (_) {}
+  }
+
+  /// إيقاف صوت الرنين فوراً
+  static Future<void> stopRingtone() async {
+    try {
+      await _audioPlayer.stop();
+    } catch (_) {}
+  }
 
   Future<void> startServer(
     int port, {
@@ -61,6 +86,7 @@ class P2PSocketServer {
   }
 
   void stop() {
+    stopRingtone();
     _server?.close();
   }
 }
