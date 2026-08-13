@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/p2p_socket_server.dart';
 import '../services/webrtc_service.dart';
+import '../services/contact_service.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String targetDeviceId;
@@ -26,15 +28,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final List<Map<String, String>> _messages = [];
   final WebRTCService _webrtcService = WebRTCService();
 
+  String _displayName = '';
   bool _inCall = false;
   bool _isVideoCall = false;
 
   @override
   void initState() {
     super.initState();
+    _displayName = widget.targetDeviceId;
+    _loadSavedContactName();
+
     P2PSocketServer.messageStream.listen((data) {
       _handleIncomingData(data);
     });
+  }
+
+  Future<void> _loadSavedContactName() async {
+    String? savedName = await ContactService.getContactName(widget.targetDeviceId);
+    if (savedName != null && savedName.isNotEmpty) {
+      setState(() {
+        _displayName = savedName;
+      });
+    }
   }
 
   void _handleIncomingData(String rawData) async {
@@ -47,12 +62,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         String type = decoded['type'];
 
         if (type == 'offer') {
+          // تشغيل نغمة الرنين عند ورود مكالمة
+          FlutterRingtonePlayer().playRingtone(looping: true);
+
           _showIncomingCallDialog(
             isVideo: decoded['isVideo'] ?? false,
             sdp: decoded['sdp'],
           );
           return;
         } else if (type == 'answer') {
+          FlutterRingtonePlayer().stop();
           await _webrtcService.handleAnswer(decoded['sdp']);
           if (mounted) setState(() {});
           return;
@@ -60,6 +79,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           await _webrtcService.handleCandidate(decoded['candidate']);
           return;
         } else if (type == 'hangup') {
+          FlutterRingtonePlayer().stop();
           await _webrtcService.dispose();
           if (mounted) {
             setState(() {
@@ -72,9 +92,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     } catch (_) {}
 
     if (rawData != "CONNECT_ACCEPTED" && rawData.isNotEmpty) {
+      // تشغيل نغمة الرسالة النصية
+      FlutterRingtonePlayer().playNotification();
+
       setState(() {
         _messages.add({
-          'sender': widget.targetDeviceId,
+          'sender': _displayName,
           'text': rawData,
         });
       });
@@ -95,12 +118,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             style: const TextStyle(color: Colors.white),
           ),
           content: Text(
-            'يتصل بك: ${widget.targetDeviceId}',
+            'يتصل بك: $_displayName',
             style: const TextStyle(color: Colors.white70),
           ),
           actions: [
             TextButton(
               onPressed: () async {
+                FlutterRingtonePlayer().stop();
                 Navigator.of(context).pop();
                 await _webrtcService.hangup(widget.targetHost, widget.targetPort);
               },
@@ -109,6 +133,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
               onPressed: () async {
+                FlutterRingtonePlayer().stop();
                 Navigator.of(context).pop();
                 setState(() {
                   _inCall = true;
@@ -130,6 +155,42 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
+  void _showSaveContactDialog() {
+    TextEditingController nameController = TextEditingController(text: _displayName);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('حفظ جهة الاتصال'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'الاسم المخصص للجهاز',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              String newName = nameController.text.trim();
+              if (newName.isNotEmpty) {
+                await ContactService.saveContact(widget.targetDeviceId, newName);
+                setState(() {
+                  _displayName = newName;
+                });
+              }
+              if (mounted) Navigator.pop(context);
+            },
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _startCall({required bool isVideo}) async {
     setState(() {
       _inCall = true;
@@ -140,6 +201,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _endCall() async {
+    FlutterRingtonePlayer().stop();
     await _webrtcService.hangup(widget.targetHost, widget.targetPort);
     if (mounted) {
       setState(() {
@@ -166,6 +228,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    FlutterRingtonePlayer().stop();
     _webrtcService.dispose();
     super.dispose();
   }
@@ -174,8 +237,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.targetDeviceId),
+        title: Text(_displayName),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.bookmark_add, color: Colors.orange),
+            onPressed: _showSaveContactDialog,
+          ),
           IconButton(
             icon: const Icon(Icons.phone, color: Colors.green),
             onPressed: () => _startCall(isVideo: false),
@@ -281,7 +348,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      widget.targetDeviceId,
+                      _displayName,
                       style: const TextStyle(color: Colors.white, fontSize: 22),
                     ),
                     const SizedBox(height: 8),
