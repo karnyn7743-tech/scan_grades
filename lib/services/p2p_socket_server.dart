@@ -22,7 +22,7 @@ class P2PSocketServer {
         await _audioPlayer.setReleaseMode(ReleaseMode.release);
       }
       // تشغيل النغمة الافتراضية
-      await _audioPlayer.play(SourceUrl('https://actions.google.com/sounds/v1/alarms/digital_watch_alarm.ogg'));
+      await _audioPlayer.play(UrlSource('https://actions.google.com/sounds/v1/alarms/digital_watch_alarm.ogg'));
     } catch (_) {}
   }
 
@@ -42,7 +42,6 @@ class P2PSocketServer {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
       _server?.listen((Socket clientSocket) {
         clientSocket.listen((data) {
-          // فك تشفير البيانات المتمثلة ببايتات UTF-8 بدقة لمنع تشوه الحروف العربية
           String message = utf8.decode(data, allowMalformed: true).trim();
           String remoteIp = clientSocket.remoteAddress.address;
 
@@ -67,7 +66,6 @@ class P2PSocketServer {
     try {
       Socket socket = await Socket.connect(host, port, timeout: const Duration(seconds: 4));
       
-      // تحويل النص العربي إلى UTF-8 Bytes وإرساله مباشرة
       List<int> bytes = utf8.encode(message);
       socket.add(bytes);
       
