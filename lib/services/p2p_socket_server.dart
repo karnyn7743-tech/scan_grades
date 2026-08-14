@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
+import 'encryption_service.dart'; // 🔐 استيراد خدمة التشفير
 
 class P2PSocketServer {
   ServerSocket? _server;
@@ -52,8 +53,11 @@ class P2PSocketServer {
           } else if (message == "CONNECT_ACCEPTED") {
             onMessageReceived(remoteIp, "CONNECT_ACCEPTED");
           } else {
-            _messageStreamController.add(message);
-            onMessageReceived(remoteIp, message);
+            // 🔓 فك التشفير للرسائل العامة الواردة من السيرفر قبل إرسالها للواجهة وإشعار الخلفية
+            String decryptedMsg = EncryptionService.decryptText(message);
+
+            _messageStreamController.add(decryptedMsg);
+            onMessageReceived(remoteIp, decryptedMsg);
           }
         });
       });
