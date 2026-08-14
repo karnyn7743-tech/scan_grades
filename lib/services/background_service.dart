@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:connectivity_plus/connectivity_plus.dart'; // 📶 لمراقبة حالة الواي فاي
 import 'p2p_socket_server.dart';
 import 'contact_service.dart';
 
@@ -37,11 +38,11 @@ class BackgroundServiceHelper {
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
 
-    // 2. إعداد خدمة الخلفية
+    // 2. إعداد خدمة الخلفية (جعل التغشيل التلقائي متوقفاً ليتم التحكم به حسب الواي فاي)
     await service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
-        autoStart: true,
+        autoStart: false, // ⚡ لن تعمل تلقائياً عند الإقلاع إلا إذا وجد واي فاي
         isForegroundMode: true,
         notificationChannelId: 'p2p_call_channel',
         initialNotificationTitle: 'خدمة الاتصال المحلي تعمل',
@@ -49,13 +50,30 @@ class BackgroundServiceHelper {
         foregroundServiceNotificationId: 888,
       ),
       iosConfiguration: IosConfiguration(
-        autoStart: true,
+        autoStart: false,
         onForeground: onStart,
         onBackground: onIosBackground,
       ),
     );
 
-    await service.startService();
+    // 📡 3. فحص الواي فاي فور التشغيل ومراقبته باستمرار
+    _setupWifiListener(service);
+  }
+
+  /// مراقبة حالة الواي فاي لتشغيل أو إيقاف الخدمة
+  static void _setupWifiListener(FlutterBackgroundService service) {
+    Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) async {
+      bool isWifi = results.contains(ConnectivityResult.wifi);
+      bool isRunning = await service.isRunning();
+
+      if (isWifi && !isRunning) {
+        // 🟢 متصل بالواي فاي والخدمة متوقفة -> تشغيل الخدمة
+        await service.startService();
+      } else if (!isWifi && isRunning) {
+        // 🔴 غير متصل بالواي فاي والخدمة تعمل -> إيقاف الخدمة فوراً وإخفاء الإشعار
+        service.invoke('stopService');
+      }
+    });
   }
 
   @pragma('vm:entry-point')
@@ -69,6 +87,7 @@ class BackgroundServiceHelper {
     DartPluginRegistrant.ensureInitialized();
 
     final P2PSocketServer socketServer = P2PSocketServer();
+    StreamSubscription<List<ConnectivityResult>>? connectivitySubscription;
 
     // تشغيل سيرفر الستريم والاستماع بالخلفية على المنفذ 4040
     await socketServer.startServer(
@@ -90,6 +109,15 @@ class BackgroundServiceHelper {
       },
     );
 
+    // مراقبة الواي فاي من داخل الخدمة نفسها للإغلاق الذاتي الفوري عند انقطاع الواي فاي
+    connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) {
+      if (!results.contains(ConnectivityResult.wifi)) {
+        socketServer.stop();
+        connectivitySubscription?.cancel();
+        service.stopSelf();
+      }
+    });
+
     if (service is AndroidServiceInstance) {
       service.on('setAsForeground').listen((event) {
         service.setAsForegroundService();
@@ -101,6 +129,8 @@ class BackgroundServiceHelper {
     }
 
     service.on('stopService').listen((event) {
+      socketServer.stop();
+      connectivitySubscription?.cancel();
       service.stopSelf();
     });
   }
