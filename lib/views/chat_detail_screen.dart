@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/p2p_socket_server.dart';
 import '../services/webrtc_service.dart';
 import '../services/contact_service.dart';
+import '../services/encryption_service.dart'; // 🔐 استيراد خدمة التشفير
 
 class ChatDetailScreen extends StatefulWidget {
   final String targetDeviceId;
@@ -91,13 +92,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     } catch (_) {}
 
     if (rawData != "CONNECT_ACCEPTED" && rawData.isNotEmpty) {
+      // 🔓 فك تشفير الرسالة النصية الواردة فور استلامها
+      String decryptedText = EncryptionService.decryptText(rawData);
+
       // تشغيل نغمة التنبيه عند استقبال رسالة
       P2PSocketServer.playRingtone(loop: false);
 
       setState(() {
         _messages.add({
           'sender': _displayName,
-          'text': rawData,
+          'text': decryptedText,
         });
       });
     }
@@ -213,15 +217,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
 
+    // 1. عرض الرسالة واضحة بداخل واجهة المستخدم للمرسل
     setState(() {
       _messages.add({'sender': 'me', 'text': text});
     });
 
     _msgController.clear();
+
+    // 2. 🔒 تشفير النص قبل بثه وإرساله عبر الشبكة
+    String encryptedText = EncryptionService.encryptText(text);
+
     await P2PSocketServer.sendMessageToHost(
       widget.targetHost,
       widget.targetPort,
-      text,
+      encryptedText,
     );
   }
 
