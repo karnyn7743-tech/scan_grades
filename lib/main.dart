@@ -8,14 +8,16 @@ import 'views/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // 1. طلب الأذونات المطلوبة قبل بدء الخدمة
+  // 1. طلب الأذونات المطلوبة
   await _requestPermissions();
 
-  // 2. تهيئة وتشغيل خدمة الخلفية والإشعارات
-  await BackgroundServiceHelper.initializeService();
-
-  // 3. التحقق من حالة تفعيل التطبيق للجهاز
+  // 2. التحقق من حالة تفعيل التطبيق للجهاز أولاً
   bool isActivated = await LicenseService.isAppActivated();
+
+  // 3. تهيئة خدمة الخلفية والإشعارات (ستفحص الواي فاي وتعمل فقط إذا كان مفضلاً ومفعّلاً)
+  if (isActivated) {
+    await BackgroundServiceHelper.initializeService();
+  }
 
   runApp(WifiP2PApp(isActivated: isActivated));
 }
@@ -48,6 +50,17 @@ class _WifiP2PAppState extends State<WifiP2PApp> {
     _isActivated = widget.isActivated;
   }
 
+  /// دالة تفعيل التطبيق بعد إدخال الكود الصحيح
+  void _handleActivation() async {
+    // ⚡ تهيئة خدمة الخلفية فور إتمام التفعيل بنجاح
+    await BackgroundServiceHelper.initializeService();
+    if (mounted) {
+      setState(() {
+        _isActivated = true;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -60,11 +73,7 @@ class _WifiP2PAppState extends State<WifiP2PApp> {
       home: _isActivated
           ? const HomeScreen()
           : ActivationView(
-              onActivated: () {
-                setState(() {
-                  _isActivated = true;
-                });
-              },
+              onActivated: _handleActivation,
             ),
     );
   }
