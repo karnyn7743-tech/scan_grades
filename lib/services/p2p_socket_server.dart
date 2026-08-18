@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'encryption_service.dart'; // 🔐 استيراد خدمة التشفير
+import 'contact_service.dart';    // 📖 استيراد خدمة جهات الاتصال
 
 class P2PSocketServer {
   ServerSocket? _server;
@@ -42,14 +43,23 @@ class P2PSocketServer {
     try {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
       _server?.listen((Socket clientSocket) {
-        clientSocket.listen((data) {
+        clientSocket.listen((data) async {
           String message = utf8.decode(data, allowMalformed: true).trim();
           String remoteIp = clientSocket.remoteAddress.address;
 
           if (message.startsWith("CONNECT_REQUEST")) {
             List<String> parts = message.split("|");
-            String callerName = parts.length > 1 ? parts[1] : "جهاز محلي";
-            onRequestConnection(remoteIp, callerName, clientSocket);
+            String receivedName = parts.length > 1 ? parts[1] : "";
+
+            // 🔍 البحث عن اسم جهة الاتصال المحفوظة استناداً إلى رقم المعرف/الـ IP
+            String? savedName = await ContactService.getContactName(remoteIp);
+            
+            // 📞 صياغة نص التنبيه المخصص (عرض الاسم المحفوظ إن وجد، وإلا إظهار الرقم/ID)
+            String displayName = (savedName != null && savedName.isNotEmpty)
+                ? "$savedName ($remoteIp)"
+                : "الرقم $remoteIp";
+
+            onRequestConnection(remoteIp, displayName, clientSocket);
           } else if (message == "CONNECT_ACCEPTED") {
             onMessageReceived(remoteIp, "CONNECT_ACCEPTED");
           } else {
