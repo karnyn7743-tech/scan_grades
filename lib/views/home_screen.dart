@@ -223,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('طالوت الهاشمي للاتصالات المحلية'),
+        title: const Text('المستكشف للاتصالات المحلية'),
         centerTitle: true,
         actions: [
           IconButton(
