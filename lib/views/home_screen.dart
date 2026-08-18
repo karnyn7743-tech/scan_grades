@@ -134,6 +134,83 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _showSavedContactsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return FutureBuilder<Map<String, String>>(
+          future: ContactService.getContacts(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const SizedBox(
+                height: 200,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final contacts = snapshot.data!;
+            if (contacts.isEmpty) {
+              return const SizedBox(
+                height: 200,
+                child: Center(child: Text('لا توجد جهات اتصال محفوظة حتى الآن')),
+              );
+            }
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: 400,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'جهات الاتصال المحفوظة',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: contacts.length,
+                      itemBuilder: (context, index) {
+                        String id = contacts.keys.elementAt(index);
+                        String name = contacts.values.elementAt(index);
+
+                        return ListTile(
+                          leading: const CircleAvatar(
+                            backgroundColor: Colors.blueAccent,
+                            child: Icon(Icons.person, color: Colors.white),
+                          ),
+                          title: Text(name),
+                          subtitle: Text('المعرف / IP: $id'),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.redAccent),
+                            onPressed: () async {
+                              await ContactService.deleteContact(id);
+                              if (mounted) {
+                                Navigator.pop(context);
+                                setState(() {});
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('تم حذف جهة الاتصال')),
+                                );
+                              }
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     SoundHelper.stopRingtone(); // إيقاف أي صوت متبقي
@@ -148,6 +225,13 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('طالوت الهاشمي للاتصالات المحلية'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.contacts, color: Colors.white),
+            tooltip: 'جهات الاتصال المحفوظة',
+            onPressed: _showSavedContactsBottomSheet,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -178,13 +262,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       String deviceName = deviceData['name'];
 
                       return FutureBuilder<String?>(
-                        future: ContactService.getContactName(deviceName),
+                        future: ContactService.getContactName(targetIp).then((ipName) async {
+                          if (ipName != null && ipName.isNotEmpty) return ipName;
+                          return await ContactService.getContactName(deviceName);
+                        }),
                         builder: (context, snapshot) {
                           String displayName = (snapshot.hasData &&
                                   snapshot.data != null &&
                                   snapshot.data!.isNotEmpty)
-                              ? snapshot.data!
-                              : deviceName;
+                              ? "${snapshot.data!} ($targetIp)"
+                              : "الرقم $targetIp";
 
                           return ListTile(
                             leading: const CircleAvatar(
