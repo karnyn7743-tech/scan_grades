@@ -35,7 +35,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _displayName = widget.targetDeviceId;
+    // إظهار الرقم (ID) كاسم افتراضي إذا لم يتوفر اسم سابق
+    _displayName = "الرقم ${widget.targetHost}";
     _loadSavedContactName();
 
     P2PSocketServer.messageStream.listen((data) {
@@ -44,10 +45,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _loadSavedContactName() async {
-    String? savedName = await ContactService.getContactName(widget.targetDeviceId);
+    // جلب الاسم المحفوظ باستخدام الـ Host/IP أو DeviceID
+    String? savedName = await ContactService.getContactName(widget.targetHost);
+    if (savedName == null || savedName.isEmpty) {
+      savedName = await ContactService.getContactName(widget.targetDeviceId);
+    }
+
     if (savedName != null && savedName.isNotEmpty) {
       setState(() {
-        _displayName = savedName;
+        _displayName = "$savedName (${widget.targetHost})";
       });
     }
   }
@@ -122,7 +128,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
           content: Text(
             'يتصل بك: $_displayName',
-            style: const TextStyle(color: Colors.white70),
+            style: const TextStyle(color: Colors.white70, fontSize: 16),
           ),
           actions: [
             TextButton(
@@ -159,17 +165,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _showSaveContactDialog() {
-    TextEditingController nameController = TextEditingController(text: _displayName);
+    TextEditingController nameController = TextEditingController();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('حفظ جهة الاتصال'),
-        content: TextField(
-          controller: nameController,
-          decoration: const InputDecoration(
-            labelText: 'الاسم المخصص للجهاز',
-            border: OutlineInputBorder(),
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'الرقم (ID): ${widget.targetHost}',
+              style: const TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'الاسم المخصص للرقم',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -180,9 +197,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             onPressed: () async {
               String newName = nameController.text.trim();
               if (newName.isNotEmpty) {
+                // حفظ الاسم بربطه برقم المعرف (IP/Host) وأيضاً الـ DeviceID
+                await ContactService.saveContact(widget.targetHost, newName);
                 await ContactService.saveContact(widget.targetDeviceId, newName);
                 setState(() {
-                  _displayName = newName;
+                  _displayName = "$newName (${widget.targetHost})";
                 });
               }
               if (mounted) Navigator.pop(context);
